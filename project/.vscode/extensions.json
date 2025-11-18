@@ -1,0 +1,11 @@
+{
+    "recommendations": [
+        "tamasfe.even-better-toml",
+        "DavidAnson.vscode-markdownlint",
+        "ms-python.python",
+        "redhat.vscode-yaml"
+        ],
+    "unwantedRecommendations": [
+        "vscodevim.vim"
+    ]
+}

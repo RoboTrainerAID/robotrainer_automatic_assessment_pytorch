@@ -1,0 +1,106 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Push all",
+            "type": "shell",
+            "command": "./tasks/push_subs.sh",
+            "args": []
+        },
+        {
+            "label": "Pull all",
+            "type": "shell",
+            "command": "./tasks/pull_subs.sh",
+            "args": []
+        },
+        {
+            "label": "Docker clean cache and dangling",
+            "type": "shell",
+            "command": "./tasks/docker_clean.sh",
+            "args": []
+        },
+        {
+            "label": "Docker exec bash",
+            "type": "shell",
+            "command": "./tasks/connect_to_docker_bash.sh",
+            "args": []
+        },
+        {
+            "label": "Docker exec zsh",
+            "type": "shell",
+            "command": "./tasks/connect_to_docker_zsh.sh",
+            "args": []
+        },
+        {
+            "label": "Docker build base",
+            "type": "shell",
+            "command": "./tasks/build_base.sh",
+            "args": []
+        },
+        {
+            "label": "Docker build user",
+            "type": "shell",
+            "command": "./tasks/build_user.sh",
+            "args": []
+        },
+        {
+            "label": "Docker build all",
+            "type": "shell",
+            "command": "echo 'done'",
+            "dependsOn": [
+                "Docker build base",
+                "Docker build user"
+            ],
+            "args": []
+        },
+        {
+            "label": "Docker run",
+            "type": "shell",
+            "command": "./tasks/run_docker.sh",
+            "args": []
+        },
+        {
+            "label": "Docker run detached",
+            "type": "shell",
+            "command": "./tasks/run_detached.sh",
+            "args": []
+        },
+        {
+            "label": "Docker stop",
+            "type": "shell",
+            "command": "./tasks/stop_docker.sh",
+            "args": []
+        },
+        {
+            "label": "Docker build and run",
+            "type": "shell",
+            "command": "./tasks/run_docker.sh",
+            "dependsOn": [
+                "Docker build all"
+            ],
+            "args": []
+        },
+        {
+            "label": "Docker build and push",
+            "type": "shell",
+            "command": "./tasks/push_base_to_hub.sh",
+            "args": []
+        },  
+        {
+            "label": "Restart Docker",
+            "type": "shell",
+            "command": "echo restarting docker",
+            "dependsOn": [
+                "Docker stop",
+                "Docker run detached"
+            ],
+            "args": []
+        },
+        {
+            "label": "Docker build from hub",
+            "type": "shell",
+            "command": "./tasks/build_user_from_hub.sh",
+            "args": []
+        }
+    ]
+}

@@ -2,4 +2,4 @@
 
 source tasks/source_env.sh project.env
 
-docker exec -it $DOCKER_NAMESPACE/$DOCKER_NAME:$DOCKER_TAG /bin/bash
+docker exec -it $DOCKER_NAME /bin/bash

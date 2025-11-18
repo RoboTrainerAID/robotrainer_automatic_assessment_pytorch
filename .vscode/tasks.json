@@ -47,6 +47,7 @@
             "label": "Docker build all",
             "type": "shell",
             "command": "echo 'done'",
+            "dependsOrder": "sequence",
             "dependsOn": [
                 "Docker build base",
                 "Docker build user"
@@ -90,6 +91,7 @@
             "label": "Restart Docker",
             "type": "shell",
             "command": "echo restarting docker",
+            "dependsOrder": "sequence",
             "dependsOn": [
                 "Docker stop",
                 "Docker run detached"

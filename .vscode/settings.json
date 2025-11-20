@@ -113,6 +113,13 @@
             "task": "Restart Docker",
             "description": "Restart Docker container",
             "tooltip": "Restart Docker container"
+        },
+        {
+            "label": "$(remote) Open in Remote",
+            "alignment": "left",
+            "task": "Attach to Remote",
+            "description": "Open a remote session and attach to running container",
+            "tooltip": "Open a remote session and attach to running container"
         }
     ]
 }

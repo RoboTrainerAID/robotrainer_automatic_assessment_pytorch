@@ -103,6 +103,15 @@
             "type": "shell",
             "command": "./tasks/build_user_from_hub.sh",
             "args": []
+        },
+        {
+            "label": "Attach to Remote",
+            "command": "${command:remote-containers.attachToRunningContainer}",
+            "problemMatcher": [],
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Docker run detached"
+            ],
         }
     ]
 }

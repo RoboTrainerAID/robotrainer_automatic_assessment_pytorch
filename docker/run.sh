@@ -39,6 +39,12 @@ if [ -z "$CONTAINER_NAME" ]; then
     echo "No container name provided. Using default: $CONTAINER_NAME"
 fi
 
+if [ "$(docker ps -q -f name=^/${CONTAINER_NAME}$)" ]; then
+    echo "WARNING: Container with name '${CONTAINER_NAME}' is already running!"
+    echo "Stop the container first or use a different name."
+    exit 0
+fi
+
 #echo "Using container name: $CONTAINER_NAME and image: $IMAGE_NAME, detach mode: $DETACH, $COMMAND"
 
 docker run -it --rm --privileged $DETACH \

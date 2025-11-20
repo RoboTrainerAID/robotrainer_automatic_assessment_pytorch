@@ -2,21 +2,44 @@
 
 ## How to install
 
-First, add all necessary repositories to the [`project.repos`](project.repos) file following the provided example format.
+There are two ways to setup this repo:
+1. As **single folder** project (only this one git repo)  
+   *Recommended for single python projects*
+   1. Create a new folder for your package in the `./project/` directory
+        ```bash
+        mkdir ./project/<my_package>
+        ```
+2. As **multi-repo** project which has a separate repo for the environment (this) + multiple other (work in progress) git repos.  
+   *Recommended for ROS development*
+   1. Add all necessary repositories to the [`project.repos`](project.repos) file following the provided example format:
+        ```yaml
+        repositories:
+            <folder name in ./project/>:
+                type: git
+                url: <git@repo_url>.git
+                version: <branch>>
+            <another folder name in ./project/>:
+                #...
+        ```
+For either options, proceed with the following steps:
 
-Then run the installation script and select your desired project type:
+1. Run the installation script and select your desired project type:
+    ```bash
+    ./install.sh
+    ```
 
-```bash
-./install.sh
-```
+2. (Optional) Cleanup your workspace and remove setup files:  
+    *This will remove the entire `setup/` folder as well as the installation script.  
+    If you plan to change the project type later, you might want to keep these files.*
+    ```bash
+    ./clean_setup_files.sh
+    ```
+3. Click on the "Build & Run" Task in the bottom row
+4. Connect a new VS Code window to the running container and open the `/workspace/` folder.  
+   This will load all recommended settings and extensions from the .vscode folder.  
+   Accept the pop-up window to install recommended extensions.
+5. Happy coding!
 
-To cleanup your workspace and remove setup files, run:
-
-```bash
-./clean_setup_files.sh
-```
-
-This will remove the entire `setup/` folder as well as the installation script.
 
 ### Dependencies
 

@@ -52,7 +52,7 @@ docker run -it --rm --privileged $DETACH \
    -v ~/.Xauthority:/root/.Xauthority \
    -v /etc/timezone:/etc/timezone:ro \
    -v /run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro \
-   -v $PWD/project:/workspace/$CONTAINER_NAME:rw \
+   -v $PWD/project:/workspace:rw \
    -v $PWD/data/:/data/:ro \
    $IMAGE_NAME \
    $COMMAND

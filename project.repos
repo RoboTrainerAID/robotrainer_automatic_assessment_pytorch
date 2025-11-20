@@ -1,5 +1,5 @@
 repositories:
-    example:
-        type: git
-        url: git@github.com:dirk-thomas/vcstool.git
-        version: master
+    # example:
+    #     type: git
+    #     url: git@github.com:dirk-thomas/vcstool.git
+    #     version: master

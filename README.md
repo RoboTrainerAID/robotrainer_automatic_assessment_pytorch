@@ -3,24 +3,25 @@
 ## How to install
 
 There are two ways to setup this repo:
-1. As **single folder** project (only this one git repo)  
-   *Recommended for single python projects*
-   1. Create a new folder for your package in the `./project/` directory
-        ```bash
-        mkdir ./project/<my_package>
-        ```
-2. As **multi-repo** project which has a separate repo for the environment (this) + multiple other (work in progress) git repos.  
-   *Recommended for ROS development*
-   1. Add all necessary repositories to the [`project.repos`](project.repos) file following the provided example format:
-        ```yaml
-        repositories:
-            <folder name in ./project/>:
-                type: git
-                url: <git@repo_url>.git
-                version: <branch>>
-            <another folder name in ./project/>:
-                #...
-        ```
+
+**A)** As **single folder** project (only this one git repo)
+- *Recommended for single python projects*  
+- Create a new folder for your package in the `./project/` directory
+    ```bash
+    mkdir ./project/<my_package>
+    ```
+**B)** As **multi-repo** project which has a separate repo for the environment (this) + multiple other git repos.  
+- *Recommended for ROS development*
+- Add all necessary repositories to the [`project.repos`](project.repos) file following the provided example format:
+    ```yaml
+    repositories:
+        <folder name in ./project/>:
+            type: git
+            url: <git@repo_url>.git
+            version: <branch>>
+        <another folder name in ./project/>:
+            #...
+    ```
 For either options, proceed with the following steps:
 
 1. Run the installation script and select your desired project type:
@@ -93,6 +94,47 @@ Your **project repositories will be automatically cloned** into the `project/` f
 ## How to personalize
 
 ## How to contribute
+
+**A)** To contribute a fix **from your specific `template-instance`** to this `template` repo, follow these steps:
+1. Clone this `template` repo where you want to apply the change 
+   ```bash
+   git clone git@github.com:IRAS-HKA/docker_workspace_template.git
+   cd docker_workspace_template
+   ```
+2. Add your `template-instance` as a new remote:
+   ```bash
+   git remote add template-instance git@<repo_url>.git
+   git fetch template-instance
+   ```
+3. Cherry pick specific commits to apply them to this `template`:
+   **Be very careful with commit selection to avoid conflicts!**
+   ```bash
+   git cherry-pick <commit-hash-from-your-template-instance-repo>
+   ```
+4. When done, you can remove the `template-instance` remote:
+   ```bash
+   git remote remove template-instance
+   ```
+
+**B)** To apply a fix **from this `template`** repo to your specific `template-instance`, follow these steps:
+1. Switch in the repo where you want to apply the fix (`template-instance`)
+   ```bash
+   cd /path/to/your/template-instance
+   ```
+2. Add the `template` as a new remote:
+   ```bash
+   git remote add template git@github.com:IRAS-HKA/docker_workspace_template.git
+   git fetch template
+   ```
+3. Cherry pick specific commits to apply them to your `template-instance`:
+   **Be very careful with commit selection to avoid conflicts!**
+   ```bash
+   git cherry-pick <commit-hash-from-template-repo>
+   ```
+4. When done, you can remove the `template` remote:
+   ```bash
+   git remote remove template
+   ```
 
 ## Open ToDo's
 

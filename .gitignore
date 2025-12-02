@@ -3,5 +3,5 @@ data/*
 setup/.vendor/*
 *.bak
 legacy
-project/*
+# project/*
 !project/.vscode

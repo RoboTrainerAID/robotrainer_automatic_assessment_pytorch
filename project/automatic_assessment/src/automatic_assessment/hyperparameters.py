@@ -7,27 +7,19 @@ class HyperparameterManager:
     Uses a nested dictionary structure: Model -> Defaults/Dataset -> Params.
     """
     
-    def __init__(self, model_type: str, dataset_type: str, n_features: int, n_samples: int):
+    def __init__(self, model_type: str, dataset_type: str):
         """
         Args:
             model_type: 'svr' or 'rf'.
             dataset_type: 'user', 'path', or time interval string.
-            n_features: Number of input features.
-            n_samples: Number of available training samples.
         """
         self.model_type = model_type
         self.dataset_type = dataset_type
-        self.n_features = n_features
-        
-        # Calculate safe upper bound for PCA
-        self.safe_pca_limit = min(n_features, n_samples - 1)
-        if self.safe_pca_limit < 1:
-            self.safe_pca_limit = 1
             
         # Initialize the Configuration Dictionary
         self._configs = self._build_configs()
 
-    def _build_configs(self):
+    def _build_configs(self) -> dict:
         """
         Builds the nested dictionary structure.
         Structure:
@@ -44,68 +36,81 @@ class HyperparameterManager:
             'svr': {
                 'defaults': {
                     'pca__n_components': {
-                        # Number of PCA components'
-                        'best': min(5, self.safe_pca_limit), 
-                        'space': Integer(2, max(2, self.safe_pca_limit)),
+                        'best': 15, 
+                        'space': Integer(5, 76),
+                        'desc': 'Number of PCA components'
                     },
                     'regressor__estimator__C': {
-                        # Regularization parameter'
                         'best': 1.0, 
                         'space': Real(0.01, 100, prior='log-uniform'),
+                        'desc': 'Regularization parameter'
                     },
                     'regressor__estimator__epsilon': {
-                        # Epsilon tube width'
                         'best': 0.1, 
                         'space': Real(0.01, 1.0, prior='log-uniform'),
+                        'desc': 'Epsilon tube width'
                     },
                     'regressor__estimator__gamma': {
-                        # Kernel coefficient'
                         'best': 'scale', 
                         'space': Categorical(['scale', 'auto']),
+                        'desc': 'Kernel coefficient'
                     },
                     'regressor__estimator__kernel': {
-                        # Kernel type'
                         'best': 'rbf', 
                         'space': Categorical(['rbf']),
+                        'desc': 'Kernel type'
                     }
                 },
                 'user': {
                     # Specific overrides for User-based dataset (Small N)
                     'pca__n_components': {
-                        'best': min(15, self.safe_pca_limit),
-                        'space': Integer(2, max(2, self.safe_pca_limit))
+                        'best': 15,
+                        'space': Integer(2, 24)
                     }
                 },
                 'path': {
                     # Specific overrides for Path-based dataset (Large N)
-                    'pca__n_components': {'best': 27},
-                    'regressor__estimator__C': {'best': 0.37}
+                    'pca__n_components': {'best': 38},
+                    'regressor__estimator__C': {'best': 0.28}
                 }
             },
             'rf': {
                 'defaults': {
-                    'pca__n_components': {
-                        'best': min(10, self.safe_pca_limit),
-                        'desc': 'Number of PCA components'
-                    },
-                    'regressor__estimator__n_estimators': {
-                        'best': 100, 
-                        'space': Integer(50, 500),
+                    # 1. SPEED: Cap this at 150. 
+                    # 100 is usually the sweet spot for small data.
+                    'regressor__n_estimators': {
+                        'best': 79,
+                        'space': Integer(50, 200), 
                         'desc': 'Number of trees'
                     },
-                    'regressor__estimator__max_depth': {
-                        'best': None, 
-                        'space': Integer(3, 20),
+                    
+                    # 2. OVERFITTING: Cap this at 10. 
+                    # Going deeper than 10 for 560 samples is just memorizing noise.
+                    'regressor__max_depth': {
+                        'best': 7,
+                        'space': Integer(3, 10),
                         'desc': 'Max tree depth'
                     },
-                    'regressor__estimator__min_samples_split': {
-                        'best': 2, 
-                        'space': Integer(2, 10),
-                        'desc': 'Min samples to split'
+                    
+                    # 3. SMOOTHING: Add min_samples_leaf.
+                    # Forces the model to group at least 2-5 samples together.
+                    'regressor__min_samples_leaf': {
+                        'best': 6,
+                        'space': Integer(2, 15),
+                        'desc': 'Min samples per leaf'
+                    },
+                    
+                    # 4. NOISE FILTERING: Crucial for your 84 features.
+                    # 'sqrt' = looks at only ~9 features per split.
+                    # '0.3' = looks at ~25 features per split.
+                    'regressor__max_features': {
+                        'best': 'sqrt',
+                        'space': ['sqrt', 'log2', 0.1, 0.3, 0.5, 0.7, 1.0], 
+                        'desc': 'Max features per split'
                     }
                 },
-                'user': {}, # No specific overrides yet
-                'path': {}  # No specific overrides yet
+                'user': {}, 
+                'path': {} 
             }
         }
         return configs
@@ -142,11 +147,6 @@ class HyperparameterManager:
         for param, details in merged_config.items():
             if 'best' in details:
                 best_params[param] = details['best']
-        
-        # Safety Check: Clip PCA if it exceeds current limit
-        if 'pca__n_components' in best_params and best_params['pca__n_components'] > self.safe_pca_limit:
-            print(f"Config Warning: Clipping n_components from {best_params['pca__n_components']} to {self.safe_pca_limit}")
-            best_params['pca__n_components'] = self.safe_pca_limit
             
         return best_params
 

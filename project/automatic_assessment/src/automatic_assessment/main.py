@@ -1,24 +1,24 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-from sklearn.svm import SVR
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.multioutput import MultiOutputRegressor
 from sklearn.metrics import mean_squared_error
-from sklearn.impute import SimpleImputer
-from sklearn.pipeline import Pipeline
 
 from automatic_assessment.datasets import Dataset
 from automatic_assessment.models import Model
-from automatic_assessment.imputers import SmartImputer
+from automatic_assessment.visualization import (
+    visualize_loocv_results, 
+    visualize_tuning_convergence, 
+    visualize_mlp_loss, 
+    visualize_regression_quality
+)
 
 def main():
     # --- CONFIGURATION ---
-    DATASET_TYPE = 'path' # Options: 'user', 'path', '1s', '500ms', '100ms'
-    PERFORM_TUNING = False
+    DATASET_TYPE = '1s' # Options: 'user', 'path', '1s', '500ms', '100ms', '20ms'
+    PERFORM_TUNING = True
+    TUNING_ITERATIONS = 50
     RECREATE_DATASET = False
-    MODEL_TYPE = 'rf' # Options: 'svr', 'rf'
+    MODEL_TYPE = 'svr_single' # Options: 'svr', 'rf', 'mlp', 'svr_single'
     
     # --- 1. Initialize Dataset ---
     dataset = Dataset(dataset_type=DATASET_TYPE, recreate=RECREATE_DATASET)
@@ -37,45 +37,17 @@ def main():
         dataset=dataset
     )
 
-    # --- 4. Build Pipeline ---
-    # Define the pipeline structure here for full control
-    if MODEL_TYPE == 'svr':
-        regressor = MultiOutputRegressor(SVR())
-        steps = [
-            ('imputer', SmartImputer(strategy='user_mean')),
-            # ('imputer', SmartImputer(strategy='global_mean')),
-            # ('imputer', SmartImputer(strategy='path_mean')),
-            # ('imputer', SimpleImputer(strategy='mean')),
-            ('scaler', StandardScaler()),
-            ('pca', PCA()),
-            ('regressor', regressor)
-        ]
-    elif MODEL_TYPE == 'rf':
-        # RF: Native Multi-output, No Scaling, No PCA (for feature importance)
-        regressor = RandomForestRegressor(random_state=0)
-        steps = [
-            ('imputer', SmartImputer(strategy='global_mean')),
-            ('regressor', regressor)
-        ]
-    else:
-        raise ValueError(f"Unsupported model type: {MODEL_TYPE}")
-
-    base_pipeline = Pipeline(steps)
-
-    # --- 5. Hyperparameter Tuning or Loading ---
-    # Pre-scale Y for tuning (SVR is sensitive to target scale)
-    y_scaler_tune = StandardScaler()
-    y_train_val_scaled = y_scaler_tune.fit_transform(y_train_val)
-
+    # --- 4. Hyperparameter Tuning or Loading ---
     if PERFORM_TUNING:
-        # Pass the pipeline template and data; Model handles CV/fit_params internally via Dataset
-        model.tune(X_train_val, y_train_val_scaled, users_train_val, base_pipeline, n_iter=30)
+        # Pass data; Model handles pipeline and CV internally
+        # Pass RAW y_train_val because AutoScalingRegressor handles scaling internally
+        model.tune(X_train_val, y_train_val, users_train_val, n_iter=TUNING_ITERATIONS)
     else:
         print(f"\n--- Skipping Hyperparameter Tuning (Using Hardcoded {MODEL_TYPE.upper()} Parameters) ---")
-        # Apply default parameters to the pipeline
-        model.set_pipeline(base_pipeline)
+        # Apply default parameters to the internal pipeline
+        model.apply_default_params()
 
-    # --- 6. Evaluation (LOOCV) ---
+    # --- 5. Evaluation (LOOCV) ---
     splitter = dataset.get_cv_splitter(X_train_val, y_train_val, users_train_val)
     
     scaled_mse_scores = [] 
@@ -126,27 +98,56 @@ def main():
         # F. Collect Data
         for i, col in enumerate(target_cols):
             plot_data.append({
-                'User': current_user_id,
-                'Task': col,
-                'Actual Real': y_v_single[0][i],
-                'Predicted Real': y_pred_real[0][i],
-                'Absolute Error Real': abs(y_v_single[0][i] - y_pred_real[0][i]),
-                'Set': 'Validation'
+            'User': current_user_id,
+            'Task': col,
+            'Actual Real': y_v_single[0][i],
+            'Predicted Real': y_pred_real[0][i],
+            'Absolute Error Real': abs(y_v_single[0][i] - y_pred_real[0][i]),
+            'Actual Scaled': y_v_scaled_single[0][i],
+            'Predicted Scaled': y_pred_scaled[0][i],
+            'Absolute Error Scaled': abs(y_v_scaled_single[0][i] - y_pred_scaled[0][i]),
+            'Set': 'Validation'
             })
 
     print("\n--- Validation Results (CV) ---")
     print(f"RMSE (Scaled Units): {np.sqrt(np.mean(scaled_mse_scores)):.4f}")
     print(f"RMSE (Real Units):   {np.sqrt(np.mean(real_mse_scores)):.4f}")
 
-    # --- 7. Final Test Set Evaluation ---
+    # --- Clinical Scale Ranking ---
+    results_df = pd.DataFrame(plot_data)
+    val_df = results_df[results_df['Set'] == 'Validation']
+    
+    if not val_df.empty:
+        print("\n--- Clinical Scale Prediction Ranking (Validation RMSE) ---")
+        # Group by Task and calculate RMSE
+        ranking = val_df.groupby('Task').apply(
+            lambda x: np.sqrt(mean_squared_error(x['Actual Real'], x['Predicted Real']))
+        ).sort_values()
+        
+        for task, score in ranking.items():
+            print(f"{task:<35}: {score:.4f}")
+
+    # --- 6. Final Test Set Evaluation ---
     # Train on full training set
     y_final_scaled = y_scaler.fit_transform(y_train_val)
     model.train(X_train_val, y_final_scaled)
     
+    # --- MLP Visualization (Loss Curve) ---
+    if MODEL_TYPE == 'mlp':
+        if 'regressor' in model.pipeline.named_steps:
+            mlp_regressor = model.pipeline.named_steps['regressor']
+            visualize_mlp_loss(mlp_regressor, model_name="MLP_test_set")
+
     # Predict on test set
     y_test_scaled = y_scaler.transform(y_test)
     y_pred_test_raw = model.predict(X_test)
     
+    # --- MLP Visualization (Quality Plots) ---
+    if MODEL_TYPE == 'mlp':
+        # Convert predictions back to real units for physical interpretation
+        y_pred_test_real = y_scaler.inverse_transform(y_pred_test_raw)
+        visualize_regression_quality(y_test, y_pred_test_real, model_name="MLP_test_set")
+
     # Aggregation for Test Set
     unique_test_users = np.unique(users_test)
     test_mse_real_list = []

@@ -10,7 +10,7 @@ class SmartImputer(BaseEstimator, TransformerMixin):
     # Class-level set to track warnings across instances (e.g. during CV tuning)
     _warned_configs = set()
 
-    def __init__(self, strategy='global_mean', max_nan_threshold=0.1, user_col='user', path_col='path'):
+    def __init__(self, strategy='global_mean', max_nan_threshold=0.15, user_col='user', path_col='path'):
         self.strategy = strategy
         self.max_nan_threshold = max_nan_threshold
         self.user_col = user_col
@@ -78,21 +78,34 @@ class SmartImputer(BaseEstimator, TransformerMixin):
         numeric_cols = X_copy.select_dtypes(include=[np.number]).columns
         cols_to_impute = [c for c in numeric_cols if c not in [self.user_col, self.path_col]]
 
-        for col in cols_to_impute:
-            # Apply Strategy
-            if self.strategy == 'user_mean' and self.user_col in X_copy.columns:
-                if col in self.fill_values_.columns:
-                    mapped_means = X_copy[self.user_col].map(self.fill_values_[col])
-                    X_copy[col] = X_copy[col].fillna(mapped_means)
+        # Optimization: Vectorized filling instead of column-loop
+        if self.strategy == 'user_mean' and self.user_col in X_copy.columns:
+            # 1. Align means to the rows based on user ID
+            # self.fill_values_ is indexed by user_id
+            means_aligned = self.fill_values_.reindex(X_copy[self.user_col])
             
-            elif self.strategy == 'path_mean' and self.path_col in X_copy.columns:
-                if col in self.fill_values_.columns:
-                    mapped_means = X_copy[self.path_col].map(self.fill_values_[col])
-                    X_copy[col] = X_copy[col].fillna(mapped_means)
+            # 2. Reset index to match X_copy for correct alignment during fillna
+            means_aligned.index = X_copy.index
+            
+            # 3. Fill only the relevant columns
+            # Intersect columns to avoid KeyErrors if fill_values_ has different cols
+            common_cols = list(set(cols_to_impute) & set(means_aligned.columns))
+            if common_cols:
+                X_copy[common_cols] = X_copy[common_cols].fillna(means_aligned[common_cols])
+            
+        elif self.strategy == 'path_mean' and self.path_col in X_copy.columns:
+            means_aligned = self.fill_values_.reindex(X_copy[self.path_col])
+            means_aligned.index = X_copy.index
+            common_cols = list(set(cols_to_impute) & set(means_aligned.columns))
+            if common_cols:
+                X_copy[common_cols] = X_copy[common_cols].fillna(means_aligned[common_cols])
 
-            # Fallback to global
-            if col in self.global_means_:
-                X_copy[col] = X_copy[col].fillna(self.global_means_[col])
+        # Fallback to global
+        if self.global_means_ is not None:
+            # Ensure we only use columns that exist in both
+            common_cols = list(set(cols_to_impute) & set(self.global_means_.index))
+            if common_cols:
+                X_copy[common_cols] = X_copy[common_cols].fillna(self.global_means_[common_cols])
         
         return X_copy.values
 

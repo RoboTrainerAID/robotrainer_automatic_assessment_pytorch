@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import os
 from sklearn.model_selection import train_test_split, LeaveOneOut, LeaveOneGroupOut
+from sklearn.utils import shuffle
 
 class Dataset:
     """
@@ -16,14 +17,31 @@ class Dataset:
     RAW_TASK_DIFFICULTY = "/data/task_difficulty.csv"
     
     # Columns to drop during preprocessing because they have a missing data percentage > 10 %
+    # Those topics are averages of other columns '_avg' or counts '_num_'.
+    # these are not useful for time based sampling
     DROP_COLS = [
-        'right_step_duration_avg',
+        'right_num_steps',
+        'right_num_strides',
         'right_step_length_avg',
+        'right_step_duration_avg',
+        'right_stride_duration_avg',
+        'right_stride_length_avg',
+        'right_stride_swing_time_avg',
+        'right_stride_stance_time_avg',
+        'left_num_steps',
+        'left_num_strides',
+        'left_step_length_avg',
+        'left_step_duration_avg',
+        'left_stride_length_avg',
+        'left_stride_duration_avg',
+        'left_stride_swing_time_avg',
+        'left_stride_stance_time_avg',
+        'speed_avg',
         'cadence_avg'
     ]
     
     # For topics that are only present when forces were in the path
-    SPECIAL_IMPUTE_COLS = [
+    IMPUTE_WITH_ZERO_COLS = [
         "virtual_force_resulting_force_y",
         "virtual_force_resulting_force_x",
         "virtual_force_position_x",
@@ -34,6 +52,22 @@ class Dataset:
         "virtual_force_resulting_velocity_y",
         "virtual_force_velocity_in_y",
         "virtual_force_velocity_in_x",
+    ]
+
+    # Topics that need backfill/forwardfill in time-series datasets
+    IMPUTE_TIME_SERIES_COLS = [
+        'left_step_duration',
+        'right_stride_duration',
+        'right_step_length',
+        'left_stride_swing_time',
+        'right_step_duration',
+        'left_stride_duration',
+        'right_stride_length',
+        'right_stride_swing_time',
+        'left_step_length',
+        'left_stride_stance_time',
+        'left_stride_length',
+        'right_stride_stance_time'
     ]
     
     # Target columns
@@ -77,50 +111,31 @@ class Dataset:
         motor_tests_df = pd.read_csv(self.RAW_MOTOR_TESTS)
         task_difficulty_df = pd.read_csv(self.RAW_TASK_DIFFICULTY)
 
-        # 2. Process Time Series (Downsample/Aggregate)
-        processed_ts = self._process_timeseries(timeseries_df)
+        # Drop Columns
+        timeseries_df = timeseries_df.drop(columns=[c for c in self.DROP_COLS if c in timeseries_df.columns])
 
-        # 3. Merge
-        merged_df = self._merge_datasets(processed_ts, demographics_df, motor_tests_df, task_difficulty_df)
-
-        # 4. Preprocess (Cleaning, Mapping, Dropping)
         # Gender Mapping
         # List unique values in 'gender' before mapping
-        if 'gender' in merged_df.columns:
-            unique_genders = merged_df['gender'].unique()
+        if 'gender' in demographics_df.columns:
+            unique_genders = demographics_df['gender'].unique()
             print(f"Unique values in 'gender' before mapping: {unique_genders}")
 
         gender_mapping = {'Männlich': 0, 'Weiblich': 1, 'Divers': 2}
-        if 'gender' in merged_df.columns:
-            merged_df['gender'] = merged_df['gender'].map(gender_mapping).fillna(-1)
+        if 'gender' in demographics_df.columns:
+            demographics_df['gender'] = demographics_df['gender'].map(gender_mapping).fillna(-1)
+        
 
-        # Drop Columns
-        merged_df = merged_df.drop(columns=[c for c in self.DROP_COLS if c in merged_df.columns])
+        # 2. Process Time Series (Downsample/Aggregate)
+        processed_ts = self._process_timeseries(timeseries_df)
 
-        # Special imputation for specific columns
-        # print("\n--- Special Imputation Validation ---")
-        for col in self.SPECIAL_IMPUTE_COLS:
-            if col in merged_df.columns:
-                missing_mask = merged_df[col].isna()
-                num_missing = missing_mask.sum()
-                
-                if num_missing > 0:
-                    # Fill with 0
-                    merged_df[col] = merged_df[col].fillna(0)
-                    
-                    # Validation output
-                    # affected_paths = merged_df.loc[missing_mask, 'path'].value_counts()
-                    # print(f"Column '{col}': Replaced {num_missing} values.")
-                    # print(f"Affected paths:\n{affected_paths}")
+        # Imputation for specific columns that should be filled with zero
+        for col in self.IMPUTE_WITH_ZERO_COLS:
+            if col in processed_ts.columns:
+                # Fill with 0
+                processed_ts[col] = processed_ts[col].fillna(0)
 
-        # 5. Filter Users (Consistency Check)
-        user_counts = merged_df['user'].value_counts()
-        if not user_counts.empty:
-            expected_count = user_counts.mode()[0]
-            users_to_drop = user_counts[user_counts != expected_count].index.tolist()
-            if users_to_drop:
-                print(f"Warning: Dropping users without exactly {expected_count} entries: {users_to_drop}")
-                merged_df = merged_df[~merged_df['user'].isin(users_to_drop)]
+        # 3. Merge
+        merged_df = self._merge_datasets(processed_ts, demographics_df, motor_tests_df, task_difficulty_df)
 
         # --- Data Quality Check ---
         print(f"\n--- Data Quality Check after Merging (Type: {self.type}) ---")
@@ -140,7 +155,7 @@ class Dataset:
             print("All columns are numerical.")
         print("-----------------------------------------------------------\n")
 
-        # 6. Save
+        # 4. Save
         merged_df.to_csv(self.output_path, index=False)
 
     def _process_timeseries(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -150,23 +165,29 @@ class Dataset:
         elif self.type == 'path':
             return df.groupby(['user', 'path']).mean(numeric_only=True).reset_index()
         else:
-            # Time-based
-            if 'time' not in df.columns: raise KeyError("Missing 'time' column")
-            df['time'] = pd.to_datetime(df['time'], unit='ns')
-            df = df.set_index('time')
+            # Convert float seconds to Timedelta
+            df['td'] = pd.to_timedelta(df['time'], unit='s')
             
-            # Group and resample
-            # Note: Handling pandas FutureWarning/Error where grouping columns are included in aggregation
-            # Added include_groups=False to silence FutureWarning
+            # Set index for resampling
+            df = df.set_index('td')
+            
+            # Group by identifiers, then resample the time index
+            # include_groups=False prevents duplication of grouping keys into columns and silences warning
             resampled = df.groupby(['user', 'path']).resample(self.type, include_groups=False).mean(numeric_only=True)
             
-            # Drop grouping columns if they appear in the dataframe columns (they are already in index)
-            # This prevents "ValueError: cannot insert ..., already exists" during reset_index
-            cols_to_drop = [col for col in ['user', 'path'] if col in resampled.columns]
-            if cols_to_drop:
-                resampled = resampled.drop(columns=cols_to_drop)
-                
-            return resampled.reset_index()
+            # Cleanup to return to flat format with float time
+            resampled = resampled.reset_index()
+            resampled['time'] = resampled['td'].dt.total_seconds()
+            resampled = resampled.drop(columns=['td'])
+
+            # Apply time-series specific imputation
+            for col in self.IMPUTE_TIME_SERIES_COLS:
+                if col in resampled.columns:
+                    # bfill: fills NaNs with next valid observation (closest next value)
+                    # ffill: fills remaining NaNs at the end with last valid observation
+                    resampled[col] = resampled.groupby(['user', 'path'])[col].transform(lambda x: x.bfill().ffill())
+
+            return resampled
 
     def _merge_datasets(self, timeseries_df, demographics_df, motor_test_df, task_df):
         """Merges static and task difficulty data."""
@@ -215,11 +236,17 @@ class Dataset:
         train_mask = np.isin(users, train_users)
         test_mask = np.isin(users, test_users)
         
-        return (
-            X[train_mask], X[test_mask],
-            y[train_mask], y[test_mask],
-            users[train_mask], users[test_mask]
-        )
+        X_train, X_test = X[train_mask], X[test_mask]
+        y_train, y_test = y[train_mask], y[test_mask]
+        users_train, users_test = users[train_mask], users[test_mask]
+
+        # Shuffle the training set to mix users (Best practice for SGD/Adam)
+        X_train, y_train, users_train = shuffle(X_train, y_train, users_train, random_state=random_state)
+
+        # Note: We do NOT shuffle the test set. 
+        # Keeping it ordered by User->Path->Time is better for visualization and analysis.
+
+        return X_train, X_test, y_train, y_test, users_train, users_test
 
     @property
     def has_multiple_rows_per_user(self):
@@ -250,10 +277,8 @@ class Dataset:
         
 
 if __name__ == "__main__":
-    DATASET_TYPE = "path"
 
-    dataset = Dataset(dataset_type=DATASET_TYPE, recreate=False)
-    print(f"Dataset aggregated per {DATASET_TYPE}")
+    dataset = Dataset(dataset_type="1s", recreate=True)
 
     # --- 2. Prepare Data ---
     X_train_val, X_test, y_train_val, y_test, users_train_val, users_test = dataset.get_train_test_split()

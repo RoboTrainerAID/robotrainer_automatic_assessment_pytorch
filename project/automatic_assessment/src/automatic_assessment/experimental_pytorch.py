@@ -3,6 +3,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.utils as utils
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
@@ -14,8 +15,9 @@ import seaborn as sns
 import copy
 import random
 from typing import Dict, List, Tuple, Any, Optional
-import optuna  # Requires: pip install optuna
-from automatic_assessment.datasets import Dataset
+import optuna
+from optuna.pruners import MedianPruner, PatientPruner
+from automatic_assessment.sklearn.datasets import Dataset
 
 # Set seeds for reproducibility
 def set_seed(seed: int = 42):
@@ -75,12 +77,12 @@ class Visualizer:
         print("Saved optuna_history.png")
 
     @staticmethod
-    def plot_evaluation(y_true: np.ndarray, y_pred: np.ndarray):
+    def plot_evaluation(y_true: np.ndarray, y_pred: np.ndarray, target_names: Optional[List[str]] = None, dataset_name: str = "Test"):
         """
         Plots Parity Plot (Predicted vs Actual) and R2 Score per Target.
         """
         # 1. Parity Plot
-        plt.figure(figsize=(12, 5))
+        plt.figure(figsize=(14, 6))
         
         plt.subplot(1, 2, 1)
         # Flatten for global scatter
@@ -95,33 +97,55 @@ class Visualizer:
             plt.scatter(y_true_flat, y_pred_flat, alpha=0.3, s=10)
         
         min_val = min(y_true_flat.min(), y_pred_flat.min())
-        max_val = max(y_true_flat.max(), y_pred_flat.max())
+        max_val = max(y_true_flat.max(), y_pred.max())
         plt.plot([min_val, max_val], [min_val, max_val], 'r--')
-        plt.title('Global Parity Plot')
+        plt.title(f'{dataset_name}: Global Parity Plot')
         plt.xlabel('Actual')
         plt.ylabel('Predicted')
 
         # 2. Per-Target R2
         plt.subplot(1, 2, 2)
-        # Handle single output case
+        
+        # Calculate R2 per target
         if y_true.ndim == 1 or y_true.shape[1] == 1:
-            r2_scores = [r2_score(y_true, y_pred)]
+            r2_scores = np.array([r2_score(y_true, y_pred)])
         else:
             r2_scores = r2_score(y_true, y_pred, multioutput='raw_values')
+            
+        n_targets = len(r2_scores)
+        if target_names is None:
+            target_names = [f"Target {i}" for i in range(n_targets)]
         
-        x_pos = np.arange(len(r2_scores))
-        plt.bar(x_pos, r2_scores, color='skyblue', edgecolor='black')
-        plt.axhline(0, color='grey', linewidth=0.8)
-        plt.title('R2 Score per Target')
-        plt.xlabel('Target Index')
+        # Colors based on score
+        colors = ['green' if x > 0 else 'red' for x in r2_scores]
+        
+        x_pos = np.arange(n_targets)
+        bars = plt.bar(x_pos, r2_scores, color=colors, alpha=0.7, edgecolor='black')
+        plt.axhline(0, color='black', linewidth=0.8)
+        
+        plt.title(f'{dataset_name}: Performance per Target')
+        plt.xlabel('Target')
         plt.ylabel('R2 Score')
+        plt.xticks(x_pos, target_names, rotation=45, ha='right')
+        
         # Limit y-axis if R2 is terribly negative to keep plot readable
         bottom_lim = max(-1.0, min(r2_scores)) - 0.1
         plt.ylim(bottom=bottom_lim, top=1.0)
+        plt.grid(axis='y', linestyle='--', alpha=0.3)
+
+        # Add value labels on bars
+        for bar, v in zip(bars, r2_scores):
+            height = bar.get_height()
+            # Position text above bar for positive, below for negative
+            y_pos = height + 0.02 if height > 0 else height - 0.05
+            # Ensure text doesn't go below bottom limit visually
+            if y_pos < bottom_lim: y_pos = bottom_lim + 0.05
+            
+            plt.text(bar.get_x() + bar.get_width()/2, y_pos, f"{v:.2f}", ha='center', fontsize=8)
         
         plt.tight_layout()
-        plt.savefig("evaluation_metrics.png")
-        print("Saved evaluation_metrics.png")
+        plt.savefig(f"evaluation_metrics_{dataset_name.lower()}.png")
+        print(f"Saved evaluation_metrics_{dataset_name.lower()}.png")
 
 # --- Preprocessing Module ---
 class DataProcessor:
@@ -191,12 +215,10 @@ def run_training(
     y_val: Optional[np.ndarray],
     params: Dict[str, Any],
     device: torch.device,
-    trial: Optional[optuna.trial.Trial] = None,
-    fold_idx: int = 0
 ) -> Tuple[nn.Module, float, int, Dict[str, List[float]]]:
     """
     Executes the training loop for a single model configuration.
-    Handles early stopping and Optuna pruning.
+    Handles early stopping.
     """
     
     # Convert to tensors
@@ -238,7 +260,16 @@ def run_training(
             optimizer.zero_grad()
             outputs = model(batch_X)
             loss = criterion(outputs, batch_y)
+            
+            # CHECK FOR NAN/INF
+            if torch.isnan(loss) or torch.isinf(loss):
+                return model, float('inf'), epoch, history # Return inf so Optuna handles it
+
             loss.backward()
+            
+            # FIX: Gradient Clipping prevents exploding gradients
+            utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
             optimizer.step()
             epoch_train_loss += loss.item()
         
@@ -254,13 +285,7 @@ def run_training(
             
             history['val_loss'].append(val_loss)
 
-            # Pruning (only if trial is provided)
-            if trial is not None:
-                # We use a unique step for each epoch across folds to avoid Optuna errors
-                step = fold_idx * 1000 + epoch 
-                trial.report(val_loss, step=step)
-                if trial.should_prune():
-                    raise optuna.exceptions.TrialPruned()
+            # Removed per-epoch pruning to avoid "Fold Reset" trap
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -294,20 +319,21 @@ def objective(trial, X, y, groups, device):
     
     params = {
         'hidden_layers': hidden_layer_options[hidden_layer_idx],
-        'dropout': trial.suggest_float('dropout', 0.0, 0.5),
-        'lr': trial.suggest_float('lr', 1e-4, 1e-2, log=True),
+        'dropout': trial.suggest_float('dropout', 0.1, 0.5), # Increased min dropout
+        'lr': trial.suggest_float('lr', 1e-5, 1e-3, log=True),
         'weight_decay': trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True),
-        'batch_size': trial.suggest_categorical('batch_size', [32, 64, 128]),
-        'epochs': 50, # Reduced epochs for faster tuning
-        'patience': 5
+        'batch_size': trial.suggest_categorical('batch_size', [32, 64, 128]), # Removed 16
+        'epochs': 50, 
+        'patience': 10
     }
     
     # Use GroupKFold for speed (5 splits instead of 28) inside optimization
-    gkf = GroupKFold(n_splits=5)
+    folds = LeaveOneGroupOut()
+    # folds = GroupKFold(n_splits=5)
     val_losses = []
     best_epochs = []
     
-    for fold_idx, (train_idx, val_idx) in enumerate(gkf.split(X, y, groups)):
+    for fold_idx, (train_idx, val_idx) in enumerate(folds.split(X, y, groups)):
         X_train_fold, X_val_fold = X[train_idx], X[val_idx]
         y_train_fold, y_val_fold = y[train_idx], y[val_idx]
         
@@ -320,12 +346,23 @@ def objective(trial, X, y, groups, device):
         _, val_loss, best_epoch, _ = run_training(
             X_train_fold, y_train_fold, 
             X_val_fold, y_val_fold, 
-            params, device,
-            trial=trial,
-            fold_idx=fold_idx
+            params, device
         )
+        
+        # Handle Inf return from training
+        if val_loss == float('inf'):
+             return float('inf')
+
         val_losses.append(val_loss)
         best_epochs.append(best_epoch)
+        
+        # PRUNING STRATEGY:
+        # Prune after the first fold is done if it's terrible.
+        intermediate_value = np.mean(val_losses)
+        trial.report(intermediate_value, step=fold_idx)
+        
+        if trial.should_prune():
+            raise optuna.exceptions.TrialPruned()
         
     # Store average best epoch for final training
     trial.set_user_attr("avg_best_epoch", int(np.mean(best_epochs)))
@@ -338,7 +375,8 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     
     # --- 1. Initialize Dataset ---
-    dataset = Dataset(dataset_type="1s", recreate=True)
+    dataset = Dataset(dataset_type="1s", recreate=False)
+    target_names = dataset.TARGET_COLS
     print(f"Dataset aggregated per 1s")
 
     # --- 2. Prepare Data ---
@@ -355,10 +393,14 @@ if __name__ == "__main__":
     
     # --- 3. Bayesian Optimization (Optuna) ---
     print("\n--- Starting Bayesian Optimization ---")
-    study = optuna.create_study(direction="minimize")
+    # FIX: Use a Patient Pruner
+    study = optuna.create_study(
+        direction="minimize",
+        pruner=PatientPruner(MedianPruner(), patience=1, min_delta=0.0)
+    )
     study.optimize(
         lambda trial: objective(trial, X_train_val, y_train_val, users_train_val, device), 
-        n_trials=20  # Adjust number of trials as needed
+        n_trials=50  # Adjust number of trials as needed
     )
     
     print("\nBest trial:")
@@ -382,36 +424,60 @@ if __name__ == "__main__":
     best_params['patience'] = 100 # Disable early stopping for final run
 
     # --- 4. Final Training & Evaluation ---
-    print("\n--- Training Final Model on full Train/Val set ---")
+    print("\n--- Training Final Model with Validation Split ---")
     
-    # Final Processing (Fit on ALL train/val data)
-    final_processor = DataProcessor()
-    X_final_train, y_final_train = final_processor.fit_transform(X_train_val, y_train_val)
-    X_test_proc, _ = final_processor.transform(X_test) # y_test stays raw for metric calc
+    # Create a validation split from the Train/Val set to report validation metrics
+    # We use GroupKFold to ensure we validate on unseen users, similar to the CV process
+    # folds = GroupKFold(n_splits=5)
+    folds = LeaveOneGroupOut()
+    train_idx, val_idx = next(folds.split(X_train_val, y_train_val, users_train_val))
+    
+    X_train_final = X_train_val[train_idx]
+    y_train_final = y_train_val[train_idx]
+    X_val_final = X_train_val[val_idx]
+    y_val_final = y_train_val[val_idx]
 
-    # Train (No validation set, use fixed epochs from optimization)
+    # Final Processing (Fit on training split only)
+    final_processor = DataProcessor()
+    X_train_final_proc, y_train_final_proc = final_processor.fit_transform(X_train_final, y_train_final)
+    
+    # Transform Validation and Test sets
+    X_val_final_proc, y_val_final_proc = final_processor.transform(X_val_final, y_val_final)
+    X_test_proc, y_test_proc = final_processor.transform(X_test, y_test)
+
+    # Train
     final_model, _, _, history = run_training(
-        X_final_train, y_final_train, 
-        None, None, # No validation set
+        X_train_final_proc, y_train_final_proc, 
+        X_val_final_proc, y_val_final_proc, 
         best_params, device
     )
     
     Visualizer.plot_learning_curves(history, title="Final Model Training Loss")
     
-    # --- 5. Final Prediction on Test Set ---
-    final_model.eval()
-    with torch.no_grad():
-        X_test_t = torch.FloatTensor(X_test_proc).to(device)
-        preds_scaled = final_model(X_test_t).cpu().numpy()
-    
-    # Inverse transform predictions to original scale
-    preds = final_processor.inverse_transform_y(preds_scaled)
+    # --- 5. Evaluation Helper ---
+    def evaluate_dataset(name: str, X_proc: np.ndarray, y_real: np.ndarray):
+        final_model.eval()
+        with torch.no_grad():
+            X_t = torch.FloatTensor(X_proc).to(device)
+            y_pred_scaled = final_model(X_t).cpu().numpy()
         
-    mse = mean_squared_error(y_test, preds)
-    r2 = r2_score(y_test, preds)
-    
-    print("\nFinal Test Set Results:")
-    print(f"MSE: {mse:.4f}")
-    print(f"R2: {r2:.4f}")
-    
-    Visualizer.plot_evaluation(y_test, preds)
+        # Inverse transform predictions to original scale
+        y_pred_real = final_processor.inverse_transform_y(y_pred_scaled)
+            
+        # Calculate Metrics - Real Scale
+        mse_real = mean_squared_error(y_real, y_pred_real)
+        rmse_real = np.sqrt(mse_real)
+        r2_real = r2_score(y_real, y_pred_real)
+
+        print(f"\n{name} Set Results (Real Scale):")
+        print(f"MSE: {mse_real:.4f}")
+        print(f"RMSE: {rmse_real:.4f}")
+        print(f"R2: {r2_real:.4f}")
+        
+        Visualizer.plot_evaluation(y_real, y_pred_real, target_names=target_names, dataset_name=name)
+
+    # Evaluate Validation Set
+    evaluate_dataset("Validation", X_val_final_proc, y_val_final)
+
+    # Evaluate Test Set
+    # evaluate_dataset("Test", X_test_proc, y_test)

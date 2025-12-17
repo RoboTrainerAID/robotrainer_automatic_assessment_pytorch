@@ -3,9 +3,9 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 
-from automatic_assessment.datasets import Dataset
-from automatic_assessment.models import Model
-from automatic_assessment.visualization import (
+from automatic_assessment.sklearn.datasets import Dataset
+from automatic_assessment.sklearn.models import Model
+from automatic_assessment.sklearn.visualization import (
     visualize_loocv_results, 
     visualize_tuning_convergence, 
     visualize_mlp_loss, 
@@ -15,10 +15,10 @@ from automatic_assessment.visualization import (
 def main():
     # --- CONFIGURATION ---
     DATASET_TYPE = '1s' # Options: 'user', 'path', '1s', '500ms', '100ms', '20ms'
-    PERFORM_TUNING = True
-    TUNING_ITERATIONS = 50
+    PERFORM_TUNING = False
+    TUNING_ITERATIONS = 20
     RECREATE_DATASET = False
-    MODEL_TYPE = 'svr_single' # Options: 'svr', 'rf', 'mlp', 'svr_single'
+    MODEL_TYPE = 'mlp' # Options: 'svr', 'rf', 'mlp', 'svr_single'
     
     # --- 1. Initialize Dataset ---
     dataset = Dataset(dataset_type=DATASET_TYPE, recreate=RECREATE_DATASET)
@@ -121,7 +121,8 @@ def main():
         print("\n--- Clinical Scale Prediction Ranking (Validation RMSE) ---")
         # Group by Task and calculate RMSE
         ranking = val_df.groupby('Task').apply(
-            lambda x: np.sqrt(mean_squared_error(x['Actual Real'], x['Predicted Real']))
+            lambda x: np.sqrt(mean_squared_error(x['Actual Scaled'], x['Predicted Scaled'])),
+            include_groups=False
         ).sort_values()
         
         for task, score in ranking.items():

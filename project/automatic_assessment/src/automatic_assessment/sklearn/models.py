@@ -14,10 +14,10 @@ from sklearn.neural_network import MLPRegressor
 from skopt import BayesSearchCV
 import ast
 
-from automatic_assessment.hyperparameters import HyperparameterManager
-from automatic_assessment.datasets import Dataset
-from automatic_assessment.imputers import SmartImputer
-from automatic_assessment.visualization import visualize_tuning_convergence
+from automatic_assessment.sklearn.hyperparameters import HyperparameterManager
+from automatic_assessment.sklearn.datasets import Dataset
+from automatic_assessment.sklearn.imputers import SmartImputer
+from automatic_assessment.sklearn.visualization import visualize_tuning_convergence
 
 
 class Model(ABC):
@@ -144,8 +144,7 @@ class SVRModel(Model):
         super().__init__('svr', dataset)
 
     def _create_pipeline(self) -> Pipeline:
-        # n_jobs=1 ensures BayesSearchCV manages the parallelism (Outer Loop Parallelism)
-        regressor = MultiOutputRegressor(SVR(), n_jobs=1)
+        regressor = MultiOutputRegressor(SVR())
         steps = [
             ('imputer', SmartImputer(strategy='path_mean')),
             # ('imputer', SmartImputer(strategy='user_mean')),
@@ -164,8 +163,7 @@ class RandomForestModel(Model):
         super().__init__('rf', dataset)
 
     def _create_pipeline(self) -> Pipeline:
-        # n_jobs=1 prevents contention with BayesSearchCV
-        regressor = RandomForestRegressor(random_state=0, n_jobs=1)
+        regressor = RandomForestRegressor(random_state=0)
         steps = [
             ('imputer', SmartImputer(strategy='path_mean')),
             ('regressor', regressor)
@@ -216,7 +214,15 @@ class AutoScalingRegressor(BaseEstimator, RegressorMixin):
         # 1. Scale Y using ONLY the training data provided in this fold
         # This prevents the data leakage.
         self.y_scaler = StandardScaler()
-        y_scaled = self.y_scaler.fit_transform(y)
+        
+        # Handle 1D y (single target) vs 2D y (multi-target)
+        if y.ndim == 1:
+            y_reshaped = y.reshape(-1, 1)
+            y_scaled = self.y_scaler.fit_transform(y_reshaped)
+            # Flatten back to 1D for estimators that expect 1D arrays (like SVR)
+            y_scaled = y_scaled.ravel()
+        else:
+            y_scaled = self.y_scaler.fit_transform(y)
         
         # 2. Clone the base estimator (clean slate)
         self.estimator_ = clone(self.estimator)
@@ -244,7 +250,12 @@ class AutoScalingRegressor(BaseEstimator, RegressorMixin):
         
         # 2. Scale the Validation Y using the TRAINING scaler
         # (Simulating real world: we don't know Val stats yet)
-        y_val_scaled = self.y_scaler.transform(y)
+        if y.ndim == 1:
+            y_reshaped = y.reshape(-1, 1)
+            y_val_scaled = self.y_scaler.transform(y_reshaped)
+            y_val_scaled = y_val_scaled.ravel()
+        else:
+            y_val_scaled = self.y_scaler.transform(y)
         
         # 3. Calculate MSE on SCALED data
         return -mean_squared_error(y_val_scaled, y_pred_scaled)

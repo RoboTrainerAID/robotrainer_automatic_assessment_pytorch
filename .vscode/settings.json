@@ -1,4 +1,4 @@
- {
+{
     "git.autoRepositoryDetection": "subFolders",
     "git.repositoryScanMaxDepth": 2,
     "files.associations": {
@@ -29,41 +29,37 @@
             "tooltip": "Clean Docker cache and dangling images"
         },
         {
-            "label": "$(terminal) Docker Exec",
+            "label": "$(tools) Build Menu",
             "alignment": "left",
             "tasks": [
                 {
-                    "label": "Bash",
-                    "task": "Docker exec bash"
+                    "label": "$(tools) Build Base",
+                    "alignment": "left",
+                    "task": "Docker build base",
+                    "description": "Build only the base image"
                 },
                 {
-                    "label": "Zsh", 
-                    "task": "Docker exec zsh"
+                    "label": "$(person) Build User",
+                    "alignment": "left",
+                    "task": "Docker build user",
+                    "description": "Build only the user image"
+                },
+                {
+                    "label": "$(package) Build All",
+                    "alignment": "left",
+                    "task": "Docker build all",
+                    "description": "Build all (user+base) images"
                 }
             ],
-            "description": "Connect to Docker container with bash or zsh",
-            "tooltip": "Connect to Docker container with bash or zsh"
+            "description": "Build Docker and select which stages",
+            "tooltip": "Build Docker and select which stages"
         },
         {
-            "label": "$(tools) Build Base",
+            "label": "$(rocket) Build & Run",
             "alignment": "left",
-            "task": "Docker build base",
-            "description": "Build Docker base image",
-            "tooltip": "Build Docker base image"
-        },
-        {
-            "label": "$(person) Build User",
-            "alignment": "left",
-            "task": "Docker build user",
-            "description": "Build Docker user image",
-            "tooltip": "Build Docker user image"
-        },
-        {
-            "label": "$(package) Build All",
-            "alignment": "left",
-            "task": "Docker build all",
-            "description": "Build all Docker images",
-            "tooltip": "Build all Docker images"
+            "task": "Docker build and run",
+            "description": "Build all images and run container",
+            "tooltip": "Build all images and run container"
         },
         {
             "label": "$(play) Run Docker",
@@ -80,32 +76,27 @@
             "tooltip": "Run Docker container in detached mode"
         },
         {
+            "label": "$(terminal) Docker Exec",
+            "alignment": "left",
+            "tasks": [
+                {
+                    "label": "Bash",
+                    "task": "Docker exec bash"
+                },
+                {
+                    "label": "Zsh", 
+                    "task": "Docker exec zsh"
+                }
+            ],
+            "description": "Connect to Docker container with bash or zsh",
+            "tooltip": "Connect to Docker container with bash or zsh"
+        },
+        {
             "label": "$(stop-circle) Stop Docker",
             "alignment": "left",
             "task": "Docker stop",
             "description": "Stop Docker container",
             "tooltip": "Stop Docker container"
-        },
-        {
-            "label": "$(rocket) Build & Run",
-            "alignment": "left",
-            "task": "Docker build and run",
-            "description": "Build all images and run container",
-            "tooltip": "Build all images and run container"
-        },
-        {
-            "label": "$(repo-push) Build & Push",
-            "alignment": "left",
-            "task": "Docker build and push",
-            "description": "Build base image and push to hub",
-            "tooltip": "Build base image and push to hub"
-        },
-        {
-            "label": "$(repo-pull) Build User from Hub",
-            "alignment": "left",
-            "task": "Docker build from hub",
-            "description": "Pull base image from hub",
-            "tooltip": "Pull base image from hub"
         },
         {
             "label": "$(debug) Restart Docker",
@@ -115,11 +106,34 @@
             "tooltip": "Restart Docker container"
         },
         {
-            "label": "$(remote) Open in Remote",
+            "label": "$(cloud) Dockerhub Menu",
+            "alignment": "left",
+            "tasks": [
+                {
+                    "label": "$(repo-push) Build & Push",
+                    "alignment": "left",
+                    "task": "Docker build and push",
+                    "description": "Build base image and push to hub",
+                    "tooltip": "Build base image and push to hub"
+                },
+                {
+                    "label": "$(repo-pull) Build User from Hub",
+                    "alignment": "left",
+                    "task": "Docker build from hub",
+                    "description": "Pull base image from hub",
+                    "tooltip": "Pull base image from hub"
+                },
+
+            ],
+            "description": "Dockerhub push and pull actions",
+            "tooltip": "Dockerhub push and pull actions"
+        },
+        {
+            "label": "$(remote) Run & Open in Remote",
             "alignment": "left",
             "task": "Attach to Remote",
-            "description": "Open a remote session and attach to running container",
-            "tooltip": "Open a remote session and attach to running container"
+            "description": "Run container and attach a remote session",
+            "tooltip": "Run container and attach a remote session"
         }
     ]
 }

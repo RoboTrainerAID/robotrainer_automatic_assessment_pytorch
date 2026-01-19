@@ -59,6 +59,6 @@ docker run -it --rm --privileged $DETACH \
    -v /etc/timezone:/etc/timezone:ro \
    -v /run/dbus/system_bus_socket:/run/dbus/system_bus_socket:ro \
    -v $PWD/project:/workspace:rw \
-   -v $PWD/data/:/data/:ro \
+   -v $PWD/data/:/data/:rw \
    $IMAGE_NAME \
    $COMMAND

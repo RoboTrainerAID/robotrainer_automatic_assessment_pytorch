@@ -11,9 +11,24 @@ ENV NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
-    python3 python3-pip \
-    ca-certificates curl \
+    python3 python3-pip git \
+    ca-certificates curl wget iputils-ping \
+    nano htop sudo gedit bash-completion \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+RUN echo '\
+if ! shopt -oq posix; then\n\
+  if [ -f /usr/share/bash-completion/bash_completion ]; then\n\
+    . /usr/share/bash-completion/bash_completion\n\
+  elif [ -f /etc/bash_completion ]; then\n\
+    . /etc/bash_completion\n\
+  fi\n\
+fi' >> /etc/bash.bashrc
+
+ENV TERM=xterm-256color
+RUN sed -i 's/^#force_color_prompt=yes/force_color_prompt=yes/' /root/.bashrc
+
+RUN git clone https://github.com/coder/code-server.git /code-server
+RUN /bin/bash /code-server/install.sh
     

@@ -7,7 +7,7 @@ import numpy as np
 class SavingModule:
     def __init__(self, model_name: str):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.output_dir = f"experiments/{model_name}_{timestamp}"
+        self.output_dir = f"/workspace/experiment_results/{model_name}_{timestamp}"
         os.makedirs(self.output_dir, exist_ok=True)
 
     def save_results(self, results: dict):

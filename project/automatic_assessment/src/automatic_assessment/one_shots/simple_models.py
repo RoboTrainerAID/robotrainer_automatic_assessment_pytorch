@@ -40,8 +40,8 @@ from automatic_assessment.framework.dimred.lasso import select_top_n_features_la
 # -------------------- Global settings --------------------
 HYPERPARAM_SEARCH_STEPS = 20  # global budget for randomized tuning (change as needed)
 USE_HPARAM_TUNING = False      # set False to load saved hyperparams instead of tuning
-HYPERPARAM_DIR = "experiment_results/hyperparams"
-RESULTS_DIR = "experiment_results"
+HYPERPARAM_DIR = "/workspace/experiment_results/simple_models/hyperparams"
+RESULTS_DIR = "/workspace/experiment_results/simple_models"
 RANDOM_SEED = 0
 np.random.seed(RANDOM_SEED)
 random.seed(RANDOM_SEED)

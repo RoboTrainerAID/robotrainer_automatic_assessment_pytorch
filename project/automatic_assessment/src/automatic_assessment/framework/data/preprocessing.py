@@ -4,6 +4,8 @@ import os
 # from sklearn.model_selection import train_test_split, LeaveOneOut, LeaveOneGroupOut
 # from sklearn.utils import shuffle
 
+import automatic_assessment.framework.data.augmentation as augmentation
+
 class Preprocessor:
     """
     Unified Dataset class handling creation, loading, preprocessing, and splitting.
@@ -11,10 +13,10 @@ class Preprocessor:
     """
     
     # Raw Data Paths (Constants)
-    RAW_TIMESERIES = "/data/KATE_AA_dataset.csv"
-    RAW_DEMOGRAPHICS = "/data/demographics.csv"
-    RAW_MOTOR_TESTS = "/data/motoric_test.csv"
-    RAW_TASK_DIFFICULTY = "/data/task_difficulty.csv"
+    RAW_TIMESERIES = "/data/raw/KATE_AA_dataset.csv"
+    RAW_DEMOGRAPHICS = "/data/raw/demographics.csv"
+    RAW_MOTOR_TESTS = "/data/raw/motoric_test.csv"
+    RAW_TASK_DIFFICULTY = "/data/raw/task_difficulty.csv"
 
     INDICES_COLS = ['user', 'path', 'time']
 
@@ -25,23 +27,27 @@ class Preprocessor:
     PATH_RELATED_COLS = [
         'right_num_steps',
         'right_num_strides',
+        'left_num_steps',
+        'left_num_strides',
+        'speed_avg',
+        'cadence_avg',
+        'total_duration'
+    ]
+
+    # not used
+    NOT_INCLUDED_PATH_RELATED_COLS = [
         'right_step_length_avg',
         'right_step_duration_avg',
         'right_stride_duration_avg',
         'right_stride_length_avg',
         'right_stride_swing_time_avg',
         'right_stride_stance_time_avg',
-        'left_num_steps',
-        'left_num_strides',
         'left_step_length_avg',
         'left_step_duration_avg',
         'left_stride_length_avg',
         'left_stride_duration_avg',
         'left_stride_swing_time_avg',
         'left_stride_stance_time_avg',
-        'speed_avg',
-        'cadence_avg',
-        'total_duration'
     ]
     
     # For topics that are only present when forces were in the path
@@ -114,17 +120,17 @@ class Preprocessor:
         'Tapping Test', 'Ruler Drop Test'
     ]
 
-    def __init__(self, sampling_frequency: int, path: str):
+    def __init__(self, sampling_frequency: int, folder_path: str):
         """
         Args:
             dataset_type: 'user', 'path', or a time string like '1s', '100ms'.
             recreate: Whether to force recreation of the CSV file.
         """
         self.sampling_frequency = sampling_frequency
-        self.output_path = path
         
         self.timeseries_df, self.path_related_df, self.user_related_df, self.target_df = self._create_dataset()
         # self._validate_data()
+        self._save_csv_dataset(folder_path)
 
 
     def _create_dataset(self):
@@ -136,36 +142,38 @@ class Preprocessor:
         raw_task_difficulty_df = pd.read_csv(self.RAW_TASK_DIFFICULTY)
 
         # Filter loaded dataframes
-        user_related_df = self._filter_dataframe(demographics_df, self.DEMOGRAPHICS_COLS, self.RAW_DEMOGRAPHICS)
-        target_df = self._filter_dataframe(motor_tests_df, self.TARGET_COLS, self.RAW_MOTOR_TESTS)
-        timeseries_df = self._filter_dataframe(raw_timeseries_df, self.TIMESERIES_IMPUTE_WITH_ZERO_COLS + self.TIMESERIES_IMPUTE_WITH_CLOSEST_COLS, self.RAW_TIMESERIES)
-        path_related_df = self._filter_dataframe(raw_timeseries_df, self.PATH_RELATED_COLS, self.RAW_TIMESERIES)
-        task_difficulty_df = self._filter_dataframe(raw_task_difficulty_df, self.TASK_DIFFICULTY_COLS, self.RAW_TASK_DIFFICULTY)
+        user_related_df = self.filter_dataframe(demographics_df, self.DEMOGRAPHICS_COLS, self.RAW_DEMOGRAPHICS)
+        target_df = self.filter_dataframe(motor_tests_df, self.TARGET_COLS, self.RAW_MOTOR_TESTS)
+        timeseries_df = self.filter_dataframe(raw_timeseries_df, self.TIMESERIES_IMPUTE_WITH_ZERO_COLS + self.TIMESERIES_IMPUTE_WITH_CLOSEST_COLS, self.RAW_TIMESERIES)
+        path_related_df = self.filter_dataframe(raw_timeseries_df, self.PATH_RELATED_COLS, self.RAW_TIMESERIES)
+        task_difficulty_df = self.filter_dataframe(raw_task_difficulty_df, self.TASK_DIFFICULTY_COLS, self.RAW_TASK_DIFFICULTY)
 
         # Impute path_related_df (0 or NaN) with the average of the user's other paths and merge task difficulty
         path_related_df = self._impute_path_related_data(path_related_df)
 
         # Merge path related data with task difficulty
         path_related_df = pd.merge(path_related_df, task_difficulty_df, on=['path'], how='left')
-        path_related_df.to_csv("path_related_data.csv", index=False)
         
         # Impute time-series data with closest values from the same user/path
         resampled_df, resampled_before_imputing_df = self._downsample_and_impute_timeseries(timeseries_df)
 
+        # Extract advanced time-series features and merge into path_related_df
+        timeseries_features_df = self._calculate_timeseries_features(resampled_df, self.sampling_frequency)
+        path_related_df = pd.merge(path_related_df, timeseries_features_df, on=['user', 'path'], how='left')
+
         # Validation
         self._generate_quality_report(resampled_df, resampled_before_imputing_df)
         
-        resampled_df.to_csv(self.output_path, index=False)
-
         return resampled_df, path_related_df, user_related_df, target_df
 
-    def _filter_dataframe(self, df: pd.DataFrame, cols_to_keep: list[str], df_name: str = "DataFrame") -> pd.DataFrame:
+    @staticmethod
+    def filter_dataframe(df: pd.DataFrame, cols_to_keep: list[str], df_name: str = "DataFrame") -> pd.DataFrame:
         """
         Filters the dataframe to keep only the specified columns and any indices columns found.
         Prints warnings for missing columns.
         """
         # Always include indices if they exist in the df
-        indices_in_df = [c for c in self.INDICES_COLS if c in df.columns]
+        indices_in_df = [c for c in Preprocessor.INDICES_COLS if c in df.columns]
         
         # Identify missing columns from the requested list
         missing_cols = [c for c in cols_to_keep if c not in df.columns]
@@ -301,6 +309,55 @@ class Preprocessor:
                 resampled[col] = resampled[col].fillna(0)
 
         return resampled, resampled_raw
+    
+    def _calculate_timeseries_features(self, resampled_df: pd.DataFrame, fs: int) -> pd.DataFrame:
+        """
+        Calculates advanced time-series features for each sensor column using the augmentation module.
+        """
+        import warnings
+        print(f"\nTIMESERIES_DF: Calculating advanced time-series features (fs={fs}Hz)...")
+        
+        # Identify sensor columns (exclude identifiers)
+        sensor_cols = [c for c in resampled_df.columns if c not in ['user', 'path', 'time']]
+        
+        features_list = []
+        
+        # Group by user and path to process each segment
+        grouped = resampled_df.groupby(['user', 'path'])
+        
+        for (user, path), group in grouped:
+            row_dict = {'user': user, 'path': path}
+            
+            for col in sensor_cols:
+                # Extract signal
+                signal = group[col].values
+                
+                # Calculate features
+                # Use catch_warnings to identify which signal causes precision loss or divide errors
+                with warnings.catch_warnings(record=True) as w:
+                    warnings.simplefilter("always")
+                    try:
+                        feats = augmentation.extract_timeseries_features(signal, fs=float(fs))
+                    except Exception as e:
+                        print(f"ERROR: Feature extraction failed for User {user}, Path {path}, Column '{col}': {e}")
+                        feats = {}
+                    
+                    # Report context for specific warnings
+                    if w:
+                        for warning in w:
+                            msg = str(warning.message)
+                            if "Precision loss" in msg or "invalid value encountered" in msg:
+                                print(f"WARNING: Numerical instability in '{col}' for User {user}, Path {path}. (Signal might be constant). Message: {msg}")
+                                # Break after first relevant warning to avoid spam for the same column
+                                break
+                
+                # Flatten dict with column prefix
+                for k, v in feats.items():
+                    row_dict[f"{col}_{k}"] = v
+            
+            features_list.append(row_dict)
+            
+        return pd.DataFrame(features_list)
 
     def _report_missing_values(self, df, columns, top_n=5):
         missing_stats = []
@@ -397,80 +454,31 @@ class Preprocessor:
             print(f"  Average path duration:  {path_durations.mean():.2f}s")
         print(f"{'='*80}\n")
 
-    def get_features_targets(self):
-        """Separates X, y, and user groups."""
-        y = self.df[self.TARGET_COLS].values
-        # Keep user and path in X for SmartImputer
-        feature_cols = [c for c in self.df.columns if c not in self.TARGET_COLS]
-        X = self.df[feature_cols] # Return DataFrame
-        users = self.df['user'].values
-        return X, y, users, self.TARGET_COLS
-
-    @property
-    def feature_names(self) -> list:
-        """Returns the list of feature column names."""
-        return [c for c in self.df.columns if c not in self.TARGET_COLS and c != 'user']
-
-    def get_train_test_split(self, test_size=4, random_state=0):
+    def _save_csv_dataset(self, folder_path: str):
         """
-        Splits data ensuring all records of a specific user stay in the same set.
-        Returns (X_train, X_test, y_train, y_test, users_train, users_test)
+        Saves the 4 datasets to CSV files in the specified folder.
         """
-        X, y, users, _ = self.get_features_targets()
-        unique_users = np.unique(users)
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+
+        print(f"\nSaving datasets to: {folder_path}")
         
-        train_users, test_users = train_test_split(unique_users, test_size=test_size, random_state=random_state)
+        self.timeseries_df.to_csv(os.path.join(folder_path, "timeseries.csv"), index=False)
+        print("  - timeseries.csv")
         
-        train_mask = np.isin(users, train_users)
-        test_mask = np.isin(users, test_users)
+        self.path_related_df.to_csv(os.path.join(folder_path, "path.csv"), index=False)
+        print("  - path_related.csv")
         
-        X_train, X_test = X[train_mask], X[test_mask]
-        y_train, y_test = y[train_mask], y[test_mask]
-        users_train, users_test = users[train_mask], users[test_mask]
-
-        # Shuffle the training set to mix users (Best practice for SGD/Adam)
-        X_train, y_train, users_train = shuffle(X_train, y_train, users_train, random_state=random_state)
-
-        # Note: We do NOT shuffle the test set. 
-        # Keeping it ordered by User->Path->Time is better for visualization and analysis.
-
-        return X_train, X_test, y_train, y_test, users_train, users_test
-
-    @property
-    def has_multiple_rows_per_user(self):
-        """Returns True if the dataset contains multiple rows per user (requires aggregation)."""
-        return self.sampling_frequency != 'user'
-
-    def get_cv_strategy(self):
-        """Returns the Cross-Validation object (e.g., LOOCV or LOGO)."""
-        if self.has_multiple_rows_per_user:
-            return LeaveOneGroupOut()
-        else:
-            return LeaveOneOut()
-
-    def get_fit_params(self, X, y, groups):
-        """Returns a dictionary of parameters to pass to .fit() (e.g., groups)."""
-        if self.has_multiple_rows_per_user:
-            return {'groups': groups}
-        else:
-            return {}
-
-    def get_cv_splitter(self, X, y, groups):
-        """Returns the generator for cross-validation splitting."""
-        cv = self.get_cv_strategy()
-        if self.has_multiple_rows_per_user:
-            return cv.split(X, y, groups=groups)
-        else:
-            return cv.split(X)
+        self.user_related_df.to_csv(os.path.join(folder_path, "user.csv"), index=False)
+        print("  - user_related.csv")
         
+        self.target_df.to_csv(os.path.join(folder_path, "target.csv"), index=False)
+        print("  - target.csv")
+
+    def get_data(self):
+        return self.timeseries_df, self.path_related_df, self.user_related_df, self.target_df
+
 
 if __name__ == "__main__":
 
-    dataset = Preprocessor(sampling_frequency=1, path="/data/dataset_conv@1s.csv")
-
-    # --- 2. Prepare Data ---
-    # X_train_val, X_test, y_train_val, y_test, users_train_val, users_test = dataset.get_train_test_split()
-    
-    # print(f"Train/Val Samples: {len(X_train_val)} (Users: {len(np.unique(users_train_val))})")
-    # print(f"Test Samples: {len(X_test)} (Users: {len(np.unique(users_test))})")
-    # print(f"Number of Features: {X_train_val.shape[1]}")
+    dataset = Preprocessor(sampling_frequency=1, folder_path="/data/dataset_conv@1s")

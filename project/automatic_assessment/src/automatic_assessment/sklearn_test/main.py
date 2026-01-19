@@ -3,9 +3,9 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 
-from automatic_assessment.sklearn.datasets import Dataset
-from automatic_assessment.sklearn.models import Model
-from automatic_assessment.sklearn.visualization import (
+from automatic_assessment.sklearn_test.datasets import Dataset
+from automatic_assessment.sklearn_test.models import Model
+from automatic_assessment.sklearn_test.visualization import (
     visualize_loocv_results, 
     visualize_tuning_convergence, 
     visualize_mlp_loss, 

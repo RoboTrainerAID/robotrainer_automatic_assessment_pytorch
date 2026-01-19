@@ -14,10 +14,10 @@ from sklearn.neural_network import MLPRegressor
 from skopt import BayesSearchCV
 import ast
 
-from automatic_assessment.sklearn.hyperparameters import HyperparameterManager
-from automatic_assessment.sklearn.datasets import Dataset
-from automatic_assessment.sklearn.imputers import SmartImputer
-from automatic_assessment.sklearn.visualization import visualize_tuning_convergence
+from automatic_assessment.sklearn_test.hyperparameters import HyperparameterManager
+from automatic_assessment.sklearn_test.datasets import Dataset
+from automatic_assessment.sklearn_test.imputers import SmartImputer
+from automatic_assessment.sklearn_test.visualization import visualize_tuning_convergence
 
 
 class Model(ABC):

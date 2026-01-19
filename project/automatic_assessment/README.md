@@ -39,85 +39,84 @@ Input data:
   - interactions + demographics + task difficulty
 Output data: single clinical scale / all multioutput clinical scales
 
-## Independent Tuned SVRs
+## Architecture
 
---- Tuning Target 1/14: Balance Test ---
-Best Score (MSE): 1.5423
-Best Params: {'pca__n_components': 5, 'regressor__C': 0.044433664965605184, 'regressor__epsilon': 0.6171359284490464, 'regressor__gamma': 'scale', 'regressor__kernel': 'rbf'}
+1. Data Preprocessing
+    - Imputing
+      - impute with zeros
+      - impute with mean/median
+      - impute with closest neighbor
+    - Augmentation
+      - timeseries meta data (e.g. mean, std, skewness, kurtosis, entropy, trend)
+      - noise addition
+    - Merging
 
---- Tuning Target 2/14: Single Leg Stance ---
-Best Score (MSE): 1.1288
-Best Params: {'pca__n_components': 25, 'regressor__C': 0.576414019242899, 'regressor__epsilon': 0.03337932496459199, 'regressor__gamma': 'auto', 'regressor__kernel': 'rbf'}
+1. Load dataset from exsiting class
 
---- Tuning Target 3/14: Robotrainer Front ---
-Best Score (MSE): 0.8509
-Best Params: {'pca__n_components': 19, 'regressor__C': 100.0, 'regressor__epsilon': 1.0, 'regressor__gamma': 'auto', 'regressor__kernel': 'rbf'}
+    ```python
+    dataset = DatasetConv1s(recreate=False)
+    X, y, users, feature_names = dataset.get_user_level_dataset()
+    ```
 
---- Tuning Target 4/14: Robotrainer Left ---
-Best Score (MSE): 1.0381
-Best Params: {'pca__n_components': 34, 'regressor__C': 0.017044779006616908, 'regressor__epsilon': 0.04836897656980925, 'regressor__gamma': 'scale', 'regressor__kernel': 'rbf'}
+2. Scaling
+    - X and y StandardScaler
+      - How to handle predictions that should be outside of scale 0-1? Can a NN head predict 1.1?
+    - Always use scaled values for validation and loss calculation
 
---- Tuning Target 5/14: Robotrainer Right ---
-Best Score (MSE): 0.7449
-Best Params: {'pca__n_components': 54, 'regressor__C': 100.0, 'regressor__epsilon': 0.01, 'regressor__gamma': 'scale', 'regressor__kernel': 'rbf'}
+3. Test Data Split
+    - Problem: **Sample bias** (small N, high variance between users, test set performance varies a lot depending on which users are in test set)
+    - Solution: Nested CV with outer LOOCV loop over all users and inner LOOCV loop for hyperparameter tuning
+    - Goal: Get robust estimate of model performance on unseen users
+    - Normal Test set assumption: test set is representative sample of the true population
+      - Does not hold here because of sample bias
+      - With 4 test users, no guarantee they represent the curve. Statistically "unlucky" if catching the outliers, but then effectively punishing the model for the splitting strategy, not its actual lack of capability.
+    - ~~Test set of 4 users held out completely~~
+    - ensure no data from same user in train and val
+      - automatically handle if multiple samples have the same user ID
+      - both cases could occur. E.g. if using per-path data, multiple samples per user exist. If using per-user data, only one sample per user exists.
 
---- Tuning Target 6/14: Hand Grip Left ---
-Best Score (MSE): 0.7898
-Best Params: {'pca__n_components': 54, 'regressor__C': 0.47108828663039926, 'regressor__epsilon': 0.01, 'regressor__gamma': 'auto', 'regressor__kernel': 'rbf'}
+3. Dimensionality Reduction
+    - LASSO
+      - How to find the optimal alpha?
+      - Can I set a min or max number of features to select?
+      - How to handle multioutput and single-target regression?
+        - Do it independently for each target inside the CV loop?
 
---- Tuning Target 7/14: Hand Grip Right ---
-Best Score (MSE): 0.3988
-Best Params: {'pca__n_components': 56, 'regressor__C': 18.401823963533182, 'regressor__epsilon': 0.01, 'regressor__gamma': 'scale', 'regressor__kernel': 'rbf'}
+4. Train Validation Split
+    - Leave-one-out CV (no data from same user in train and val)
+      - or Leave-one-group-out CV with user IDs as groups if multiple samples have the same user ID
+      - Determine automatically if LOO or LOGO should be used
 
---- Tuning Target 8/14: Jump & Reach ---
-Best Score (MSE): 0.9994
-Best Params: {'pca__n_components': 40, 'regressor__C': 15.681962615294953, 'regressor__epsilon': 0.7719310946196394, 'regressor__gamma': 'auto', 'regressor__kernel': 'rbf'}
+5. Hyperparameter tuning
+    - Bayesian Optimization
+    - Use same framework as model train pipeline and loocv loop for tuning
+    - Save and load best model parameters in yaml files
+    - Optimize per target vs multioutput
+    - Easily turn off and on with aingle flag
 
---- Tuning Target 9/14: Tandem Walk ---
-Best Score (MSE): 1.2515
-Best Params: {'pca__n_components': 21, 'regressor__C': 0.01778711589862346, 'regressor__epsilon': 0.01, 'regressor__gamma': 'auto', 'regressor__kernel': 'rbf'}
+6. Model
+    - separate class for storing all the model information and hyperparameters
+    - This should be easily expandable to try out different models
+    - Each should have the same interface like a forward(X) method for predictions
 
---- Tuning Target 10/14: Figure 8 Walk ---
-Best Score (MSE): 1.1808
-Best Params: {'pca__n_components': 28, 'regressor__C': 0.016268101934330387, 'regressor__epsilon': 0.01, 'regressor__gamma': 'scale', 'regressor__kernel': 'rbf'}
+7. Model Training
+    - separate methods for train_step, train_epoch, validate
+    - save val predictions for each fold for later analysis
+    - Each fold in loocv equals the score for a single user
 
---- Tuning Target 11/14: Jumping Sideways ---
-Best Score (MSE): 1.0240
-Best Params: {'pca__n_components': 34, 'regressor__C': 0.017044779006616908, 'regressor__epsilon': 0.04836897656980925, 'regressor__gamma': 'scale', 'regressor__kernel': 'rbf'}
+8. Model Evaluation
+    - Calculate RMSE (everything always scaled values)
+    - Save val predictions as pandas dataframe and csv for later analysis
+      - Create a new folder for each model (model name saved in respective class, Folder path with global variable)
+      - Save hyperparameters used for training in a yaml file in the same folder
+      - Save scores (final and per user from each fold) as pandas dataframe and csv for later analysis
+      - Save feature importances if possible (e.g. LASSO coefficients)
 
---- Tuning Target 12/14: Throwing Beanbag at Target ---
-Best Score (MSE): 1.1883
-Best Params: {'pca__n_components': 18, 'regressor__C': 0.01, 'regressor__epsilon': 0.015731213257540094, 'regressor__gamma': 'scale', 'regressor__kernel': 'rbf'}
-
---- Tuning Target 13/14: Tapping Test ---
-Best Score (MSE): 1.1612
-Best Params: {'pca__n_components': 37, 'regressor__C': 0.07817726661294962, 'regressor__epsilon': 0.01, 'regressor__gamma': 'auto', 'regressor__kernel': 'rbf'}
-
---- Tuning Target 14/14: Ruler Drop Test ---
-Best Score (MSE): 1.0537
-Best Params: {'pca__n_components': 23, 'regressor__C': 0.3753988814338626, 'regressor__epsilon': 0.01, 'regressor__gamma': 'auto', 'regressor__kernel': 'rbf'}
-
---- Validation Results (CV) ---
-RMSE (Scaled Units): 0.9791
-RMSE (Real Units):   21.3086
-
---- Clinical Scale Prediction Ranking (Validation RMSE) ---
-Figure 8 Walk                      : 0.6140
-Tandem Walk                        : 2.2783
-Tapping Test                       : 2.8674
-Single Leg Stance                  : 4.3698
-Ruler Drop Test                    : 4.3884
-Throwing Beanbag at Target         : 4.9440
-Hand Grip Right                    : 5.7117
-Jumping Sideways                   : 7.0261
-Hand Grip Left                     : 7.3916
-Jump & Reach                       : 7.4704
-Balance Test                       : 14.1833
-Robotrainer Right                  : 37.7893
-Robotrainer Left                   : 41.9065
-Robotrainer Front                  : 51.9846
-
---- Test Set Results ---
-RMSE (Scaled Units): 0.8913
-RMSE (Real Units):   24.2923
-
+9. Visualization / Reporting
+    - Separate class or set of methods that only operate on the saved csvs and dataframes
+    - Compare single-target vs multioutput models with plots and tables
+    - Analyse LASSO feature importances if possible
+    - Plot loss / learning curves with train and val loss per epoch
+    - Performance as parity plot
+    - Prepare comparison of different models (although for now only one used) by iterating all the model folders and aggregating
+    

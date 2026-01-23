@@ -200,11 +200,6 @@ class Pipeline:
                 trial.set_user_attr("val_metrics", val_metrics)
                 
                 pbar.update(1)
-                try:
-                    best = min(study.best_value, val_loss)
-                except ValueError:
-                    best = val_loss
-                pbar.set_postfix({"loss": f"{val_loss:.4f}", "best": f"{best:.4f}"})
                 
                 return val_loss
 

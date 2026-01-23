@@ -62,7 +62,7 @@ def main():
         print(f"{'='*60}\n")
         
         pipeline = Pipeline(model_class, config)
-        saver = SavingModule(model_name=f"{model_name}_NestedCV_MultiOutput")
+        saver = SavingModule(model_name=f"{model_name}")
         saver.save_model_source(model_class)
 
         results = pipeline.run_nested_cv(X, y, users)

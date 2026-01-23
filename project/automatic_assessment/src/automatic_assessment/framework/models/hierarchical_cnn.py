@@ -1,13 +1,18 @@
 import torch
 import torch.nn as nn
-from typing import Dict, Any
+from typing import Dict, Any, List, Union
 from .base import BaseModel
 
 class HierarchicalCNN(BaseModel):
     model_name = "Hierarchical_Path_CNN"
 
-    def __init__(self, input_dim: int, output_dim: int, hyperparams: Dict[str, Any]):
-        super().__init__(input_dim, output_dim, hyperparams)
+    def __init__(self, input_dims: list, output_dim: int, hyperparams: Dict[str, Any]):
+        super().__init__(input_dims, output_dim, hyperparams)
+        
+        # input_dims[0] is (N, P, F, T)
+        ts_shape = input_dims[0]
+        # P * F
+        input_dim = ts_shape[1] * ts_shape[2]
         
         # Architecture Constraints based on dataset structure
         # Features (Paths * Timeseries) = 20 * 20 = 400
@@ -91,7 +96,15 @@ class HierarchicalCNN(BaseModel):
             nn.Linear(32, output_dim)
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: Union[torch.Tensor, List[torch.Tensor]]) -> torch.Tensor:
+        # Check for list/tuple input (new dataset structure)
+        # Structure: [x_ts, x_path, x_user]
+        if isinstance(x, (list, tuple)):
+            x_ts = x[0] # (Batch, Paths, Features, Time)
+            b, p, f, t = x_ts.shape
+            # Flatten Paths and Features to match model expectation: (Batch, P*F, Time)
+            x = x_ts.reshape(b, p*f, t)
+
         # x: (Batch, Features=400, Time=79)
         
         # 1. Temporal Condensation

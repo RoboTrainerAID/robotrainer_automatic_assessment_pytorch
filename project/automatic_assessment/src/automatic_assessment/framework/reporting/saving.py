@@ -11,10 +11,18 @@ class SavingModule:
         os.makedirs(self.output_dir, exist_ok=True)
 
     def save_results(self, results: dict):
-        fold_data = results['fold_data']
-        test_metrics = results['test_metrics']
+        fold_data = results.get('fold_data', [])
+        test_metrics = results.get('test_metrics', {})
+        experiment_info = results.get('experiment_info', {})
+        pipeline_config = results.get('pipeline_config', {})
         
-        # 1. Save Hyperparams
+        # 1. Save Config & Hyperparams
+        # Prepare expanded config content
+        full_config = {
+            "experiment_info": experiment_info,
+            "pipeline_config": pipeline_config,
+        }
+
         if fold_data:
             # Create subfolder for fold-specific hyperparameters
             hp_dir = os.path.join(self.output_dir, "fold_hyperparameters")
@@ -28,11 +36,13 @@ class SavingModule:
                     with open(os.path.join(hp_dir, f"fold_{fold_idx}_params.yaml"), 'w') as f:
                         yaml.dump(params, f)
 
-            # Save representative config (Fold 0) to root for quick access
+            # Add representative best_params (Fold 0) to main config for quick access
             if 'best_params' in fold_data[0]:
-                best_params = fold_data[0]['best_params']
-                with open(os.path.join(self.output_dir, "config.yaml"), 'w') as f:
-                    yaml.dump(best_params, f)
+                full_config['hyperparameters_fold_0'] = fold_data[0]['best_params']
+
+        # Save main config.yaml
+        with open(os.path.join(self.output_dir, "config.yaml"), 'w') as f:
+            yaml.dump(full_config, f, sort_keys=False)
 
         # 1.b Save Learning Curve Data (from first fold)
         if fold_data and 'history' in fold_data[0] and fold_data[0]['history']:
@@ -40,6 +50,20 @@ class SavingModule:
             history_df = pd.DataFrame(history)
             history_df['epoch'] = range(1, len(history_df) + 1)
             history_df.to_csv(os.path.join(self.output_dir, "learning_curve.csv"), index=False)
+            
+            # Save Tuning Trials (Fold 0)
+            if 'tuning_trials' in fold_data[0] and fold_data[0]['tuning_trials'] is not None:
+                fold_data[0]['tuning_trials'].to_csv(os.path.join(self.output_dir, "tuning_trials.csv"), index=False)
+                
+            # Save Attention Weights (Fold 0)
+            if 'attention_weights' in fold_data[0] and fold_data[0]['attention_weights'] is not None:
+                attn = fold_data[0]['attention_weights']
+                # Save as npy for full structure
+                np.save(os.path.join(self.output_dir, "attention_weights.npy"), attn)
+                # Save mean per path as csv for quick looking
+                # Shape: (Samples, Paths, 1) -> Mean over samples -> (Paths)
+                mean_attn = np.mean(attn, axis=0).flatten()
+                pd.DataFrame(mean_attn, columns=['mean_weight']).to_csv(os.path.join(self.output_dir, "mean_attention_weights.csv"))
 
         # 2. Aggregate Fold Predictions
         all_preds = []
@@ -64,7 +88,9 @@ class SavingModule:
         
         # Add per-fold summaries
         summary["fold_metrics"] = []
-        val_rmses = []
+        
+        # Initialize aggregators for all RMSE metrics found in validation
+        val_metric_lists = {}
         
         for f in fold_data:
             fold_summary = {
@@ -76,12 +102,17 @@ class SavingModule:
                 
             summary["fold_metrics"].append(fold_summary)
             
-            # Check nested dictionary for val metric
-            if "val_metrics" in f and "val_rmse_mean" in f["val_metrics"]:
-                val_rmses.append(f["val_metrics"]["val_rmse_mean"])
+            # Aggregate validation metrics (including specific targets)
+            if "val_metrics" in f:
+                for metric_name, val in f["val_metrics"].items():
+                    if "rmse" in metric_name:
+                        if metric_name not in val_metric_lists:
+                            val_metric_lists[metric_name] = []
+                        val_metric_lists[metric_name].append(val)
 
-        if val_rmses:
-            summary["mean_val_rmse"] = float(np.mean(val_rmses))
+        # Compute mean for all validation RMSE metrics
+        for metric_name, values in val_metric_lists.items():
+            summary[f"mean_{metric_name}"] = float(np.mean(values))
         
         with open(os.path.join(self.output_dir, "metrics.yaml"), 'w') as f:
             yaml.dump(summary, f)

@@ -3,17 +3,18 @@ import torch.nn as nn
 import numpy as np
 
 from automatic_assessment.framework.data.data_utils import get_dataloader
+from automatic_assessment.framework.models.base import BaseModel
 
 class Trainer:
-    def __init__(self, model_class, input_dim: int, output_dim: int, params: dict):
+    def __init__(self, model_class, input_dims: list, output_dim: int, params: dict):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = model_class(input_dim=input_dim, output_dim=output_dim, hyperparams=params).to(self.device)
+        self.model: BaseModel = model_class(input_dims=input_dims, output_dim=output_dim, hyperparams=params).to(self.device)
         self.params = params
         self.criterion = nn.HuberLoss(delta=1.0)
 
         # Improvement 1: AdamW with high weight decay for small datasets
-        wd = params.get('weight_decay', 0.05)
-        lr = params.get('lr', 1e-3)
+        wd = params.get('weight_decay')
+        lr = params.get('lr')
         
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), 
@@ -23,22 +24,21 @@ class Trainer:
         )
         
         # Improvement 2: Scheduler
-        # Reduces LR if validation loss stops improving
-        # self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        #     self.optimizer, 
-        #     mode='min', 
-        #     factor=0.5, 
-        #     patience=10
-        # )
+        self.scheduler_class = torch.optim.lr_scheduler.CosineAnnealingLR
+        self.eta_min = params.get('eta_min', 1e-7)
 
-    def train_model(self, X_train: torch.Tensor, y_train: torch.Tensor, epochs: int) -> None:
-        train_loader = get_dataloader(X_train, y_train, batch_size=self.params.get('batch_size', 16))
+    def train_model(self, X_train: tuple, y_train: torch.Tensor, epochs: int) -> None:
+        train_loader = get_dataloader(*X_train, y_train, batch_size=self.params.get('batch_size', 16))
+        scheduler = self.scheduler_class(self.optimizer, T_max=epochs, eta_min=self.eta_min)
+        
         for _ in range(epochs):
             self.train_epoch(train_loader)
+            scheduler.step()
 
-    def train_model_and_evaluate_every_epoch(self, X_train: torch.Tensor, y_train: torch.Tensor, epochs: int, X_val: torch.Tensor, y_val: torch.Tensor) -> dict:
-        train_loader = get_dataloader(X_train, y_train, batch_size=self.params.get('batch_size', 16))
-        val_loader = get_dataloader(X_val, y_val, batch_size=len(X_val), shuffle=False)
+    def train_model_and_evaluate_every_epoch(self, X_train: tuple, y_train: torch.Tensor, epochs: int, X_val: tuple, y_val: torch.Tensor) -> dict:
+        train_loader = get_dataloader(*X_train, y_train, batch_size=self.params.get('batch_size', 16))
+        val_loader = get_dataloader(*X_val, y_val, batch_size=len(y_val), shuffle=False)
+        scheduler = self.scheduler_class(self.optimizer, T_max=epochs, eta_min=self.eta_min)
 
         history = {'train_loss': [], 'val_loss': []}
 
@@ -48,20 +48,29 @@ class Trainer:
             
             val_loss, _, _ = self.evaluate(val_loader)
             history['val_loss'].append(val_loss)
+            
+            scheduler.step()
         
         return history
 
-    def evaluate_model(self, X: torch.Tensor, y: torch.Tensor) -> tuple[float, np.ndarray, np.ndarray]:
-        loader = get_dataloader(X, y, batch_size=len(X), shuffle=False)
+    def evaluate_model(self, X: tuple, y: torch.Tensor) -> tuple[float, np.ndarray, np.ndarray]:
+        loader = get_dataloader(*X, y, batch_size=len(y), shuffle=False)
         return self.evaluate(loader)
 
     def train_epoch(self, loader) -> float:
         self.model.train()
         losses = []
-        for X, y in loader:
-            X, y = X.to(self.device), y.to(self.device)
+        for batch in loader:
+            # Inputs: (x_ts, x_path, x_user, y)
+            inputs = batch[:-1] 
+            y = batch[-1]
+            
+            inputs = [x.to(self.device) for x in inputs]
+            y = y.to(self.device)
+            
             self.optimizer.zero_grad()
-            pred = self.model(X)
+            # Pass list of inputs to model
+            pred = self.model(inputs)
             loss = self.criterion(pred, y)
             loss.backward()
             self.optimizer.step()
@@ -73,9 +82,14 @@ class Trainer:
         losses = []
         preds, actuals = [], []
         with torch.no_grad():
-            for X, y in loader:
-                X, y = X.to(self.device), y.to(self.device)
-                pred = self.model(X)
+            for batch in loader:
+                inputs = batch[:-1]
+                y = batch[-1]
+                
+                inputs = [x.to(self.device) for x in inputs]
+                y = y.to(self.device)
+                
+                pred = self.model(inputs)
                 loss = self.criterion(pred, y)
                 losses.append(loss.item())
                 preds.append(pred.cpu().numpy())

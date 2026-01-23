@@ -1,15 +1,20 @@
 import torch
 import torch.nn as nn
 from .base import BaseModel
+from typing import List, Union
 
 class CNN1D(BaseModel):
     model_name = "CNN1D_Temporal"
 
-    def __init__(self, input_dim, output_dim, hyperparams):
-        super().__init__(input_dim, output_dim, hyperparams)
+    def __init__(self, input_dims, output_dim, hyperparams):
+        super().__init__(input_dims, output_dim, hyperparams)
+        
+        # Extract features from x_ts dimensions
+        # input_dims[0] is shape of x_ts: (N, P, F, T)
+        ts_shape = input_dims[0]
+        curr_dims = ts_shape[1] * ts_shape[2] # P * F
         
         layers = []
-        curr_dims = input_dim
         n_layers = hyperparams.get("n_layers", 2)
         hidden_dim = hyperparams.get("hidden_dim", 64)
         kernel_size = hyperparams.get("kernel_size", 3)
@@ -28,11 +33,20 @@ class CNN1D(BaseModel):
         self.adaptive_pool = nn.AdaptiveAvgPool1d(1) # Handles variable length
         self.regressor = nn.Linear(hidden_dim, output_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
+        # Structure: [x_ts, x_path, x_user]
+        # We only use x_ts for this model
+        x_ts = x[0]
+        
+        # x_ts shape: (Batch, Paths, Features, Time)
+        # Flatten Paths and Features: (Batch, Paths, Features, Time) -> (Batch, Paths*Features, Time)
+        b, p, f, t = x_ts.shape
+        x_in = x_ts.reshape(b, p*f, t)
+        
         # X shape: (Batch, Features, TimeseriesLength) from data loader
-        x = self.feature_extractor(x)
-        x = self.adaptive_pool(x).squeeze(-1)
-        return self.regressor(x)
+        x_out = self.feature_extractor(x_in)
+        x_out = self.adaptive_pool(x_out).squeeze(-1)
+        return self.regressor(x_out)
 
     @staticmethod
     def get_hyperparameter_space(trial):

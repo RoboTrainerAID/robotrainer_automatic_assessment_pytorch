@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 import optuna
+import time
+from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
@@ -8,13 +10,25 @@ from automatic_assessment.framework.core.trainer import Trainer
 from automatic_assessment.framework.data.data_utils import AugmentedLOGO
 from automatic_assessment.framework.dimred.lasso import select_features
 from automatic_assessment.framework.reporting.metrics import calculate_metrics
+from automatic_assessment.framework.utils.time_utils import start_timer, stop_timer
 
 class Pipeline:
     def __init__(self, model_class, config):
-        self.model_class = model_class
+        self.model_class= model_class
         self.config = config
 
-    def run_nested_cv(self, X: np.ndarray, y: np.ndarray, users: np.ndarray) -> dict:
+    def run_nested_cv(self, X: tuple, y: np.ndarray, users: np.ndarray) -> dict:
+        start_dt, start_perf = start_timer()
+
+        # Capture Input Shapes
+        input_info = {
+            "shape_X_ts": list(X[0].shape),
+            "shape_X_path": list(X[1].shape),
+            "shape_X_user": list(X[2].shape),
+            "shape_y": list(y.shape)
+        }
+        
+        # X is (x_ts, x_path, x_user)
         # Use custom outer LOGO splitter to handle augmented data (Test on Real, remove augmented clones from Train)
         outer_splitter = AugmentedLOGO(include_augmented_in_test=False)
         splits = list(outer_splitter.split(groups=users))
@@ -22,6 +36,7 @@ class Pipeline:
         
         cached_best_params = None
         fold_data = [] # List storing data for each fold
+        model_total_params = 0
         
         all_test_preds = []
         all_test_actuals = []
@@ -31,7 +46,8 @@ class Pipeline:
         self.model_class.print_summary(X, y)
 
         for fold_idx, (train_idx, test_idx) in enumerate(tqdm(splits, desc="Outer Nested CV")):
-            X_t, X_test = X[train_idx], X[test_idx]
+            X_t = self._slice_data(X, train_idx)
+            X_test = self._slice_data(X, test_idx)
             y_t, y_test = y[train_idx], y[test_idx]
             users_t = users[train_idx]
             
@@ -48,12 +64,9 @@ class Pipeline:
             current_params = None
             val_loss = 0.0
             val_metrics = {}
+            tuning_trials = None
             
             if hyperparameter_mode == 'default':
-                if fold_idx == 2:
-                    # TODO: remove this
-                    break
-
                 current_params = self.model_class.get_default_parameters()
                 # Run inner CV to report inner validation score
                 val_loss, val_metrics = self._evaluate_params_cv(Xt_s, yt_s, users_t, current_params)
@@ -61,7 +74,7 @@ class Pipeline:
             elif hyperparameter_mode == 'optimize_once':
                 if cached_best_params is None:
                     tqdm.write(f"[Outer Fold {fold_idx}] Optimizing Hyperparameters (Once)...")
-                    current_params, val_loss, val_metrics = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
+                    current_params, val_loss, val_metrics, tuning_trials = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
                     cached_best_params = current_params
                 else:
                     tqdm.write(f"[Outer Fold {fold_idx}] Reusing Cached Hyperparameters...")
@@ -70,18 +83,30 @@ class Pipeline:
                 
             elif hyperparameter_mode == 'optimize_every_fold':
                 tqdm.write(f"[Outer Fold {fold_idx}] Optimizing Hyperparameters...")
-                current_params, val_loss, val_metrics = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
+                current_params, val_loss, val_metrics, tuning_trials = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
 
             # --- 3. Final Model Training (Outer Loop) ---
-            # Train on full Outer Train set with determined params
-            trainer = Trainer(self.model_class, Xt_s.shape[1], yt_s.shape[1], current_params)
+            # Determine Input Dims Object
+            input_dims = self.model_class.get_input_dims(Xt_s)
             
-            # Capture history for the first fold for learning curve visualization
+            # Train on full Outer Train set with determined params
+            trainer = Trainer(self.model_class, input_dims, yt_s.shape[1], current_params)
+            
             history = {}
+            attention_weights = None
             if fold_idx == 0:
+                # Capture parameter count from the first trained model
+                model_total_params = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+                # Capture history for the first fold for learning curve visualization
                 history = trainer.train_model_and_evaluate_every_epoch(Xt_s, yt_s, epochs=self.config.get('epochs', 50), X_val=Xtest_s, y_val=ytest_s)
+                
+                # Capture Attention Weights for first fold (last batch of validation)
+                if hasattr(trainer.model, 'last_attn_weights') and trainer.model.last_attn_weights is not None:
+                    # Detach from graph, move to cpu, convert to numpy
+                    attention_weights = trainer.model.last_attn_weights.detach().cpu().numpy()
             else:
                 trainer.train_model(Xt_s, yt_s, epochs=self.config.get('epochs', 50))
+
             
             # --- 4. Evaluate on Outer Test Set ---
             # Note: test_loss is Huber Loss. Metrics are computed explicitly below.
@@ -105,10 +130,25 @@ class Pipeline:
                 "feature_indices": feat_idx,
                 "best_params": current_params,
                 "val_metrics": val_metrics,
-                "history": history
+                "history": history,
+                "tuning_trials": tuning_trials,
+                "attention_weights": attention_weights
             }
             fold_data.append(fold_info)
+
+            if self.config.get('only_first_fold', False) and fold_idx == 0:
+                tqdm.write("Only first fold requested; ending after fold 0.")
+                break
             
+        start_time_str, duration_str = stop_timer(start_dt, start_perf)
+
+        experiment_meta = {
+            "start_time": start_time_str,
+            "duration": duration_str,
+            "input_shapes": input_info,
+            "total_model_parameters": model_total_params
+        }
+
         # --- 5. Test Metric Calculation ---
         test_metrics = calculate_metrics(all_test_actuals, all_test_preds, prefix="test")
         test_loss = float(np.mean(all_test_losses))
@@ -130,35 +170,51 @@ class Pipeline:
         final_results = {
             "test_metrics": test_metrics,
             "test_loss": test_loss,
-            "fold_data": fold_data
+            "fold_data": fold_data,
+            "experiment_info": experiment_meta,
+            "pipeline_config": self.config
         }
         
         return final_results
 
-    def _optimize_hyperparameters(self, X: torch.Tensor, y: torch.Tensor, users: np.ndarray) -> tuple[dict, float, dict]:
+    def _slice_data(self, X: tuple, indices: np.ndarray) -> tuple:
+        """Helper to slice tuple of arrays."""
+        return tuple(x[indices] for x in X)
+
+    def _optimize_hyperparameters(self, X: tuple, y: torch.Tensor, users: np.ndarray) -> tuple[dict, float, dict, object]:
         """Runs Optuna optimization using Inner LOGO."""
         optuna.logging.set_verbosity(optuna.logging.WARNING)
+        n_trials = self.config.get('n_trials', 30)
         
-        def objective(trial):
-            # Suggest params
-            params = self.model_class.get_hyperparameter_space(trial)
-            
-            # Evaluate using Inner CV
-            val_loss, val_metrics = self._evaluate_params_cv(X, y, users, params)
-            
-            # Store additional metrics in the trial for later retrieval
-            trial.set_user_attr("val_metrics", val_metrics)
-            
-            return val_loss
-
         study = optuna.create_study(direction="minimize")
-        study.optimize(objective, n_trials=self.config.get('n_trials', 30))
+
+        with tqdm(total=n_trials, desc="Hyperparam Tuning", leave=False) as pbar:
+            def objective(trial):
+                # Suggest params
+                params = self.model_class.get_hyperparameter_space(trial)
+                
+                # Evaluate using Inner CV
+                val_loss, val_metrics = self._evaluate_params_cv(X, y, users, params)
+                
+                # Store additional metrics in the trial for later retrieval
+                trial.set_user_attr("val_metrics", val_metrics)
+                
+                pbar.update(1)
+                try:
+                    best = min(study.best_value, val_loss)
+                except ValueError:
+                    best = val_loss
+                pbar.set_postfix({"loss": f"{val_loss:.4f}", "best": f"{best:.4f}"})
+                
+                return val_loss
+
+            study.optimize(objective, n_trials=n_trials)
 
         best_val_metrics = study.best_trial.user_attrs["val_metrics"]
 
-        return study.best_params, study.best_trial.value, best_val_metrics
+        return study.best_params, study.best_trial.value, best_val_metrics, study.trials_dataframe()
 
-    def _evaluate_params_cv(self, X: torch.Tensor, y: torch.Tensor, users, params) -> tuple[float, dict]:
+    def _evaluate_params_cv(self, X: tuple, y: torch.Tensor, users, params) -> tuple[float, dict]:
         """Runs LOGO CV on the provided data with given params."""
         logo = AugmentedLOGO(include_augmented_in_test=False)
         all_val_preds = []
@@ -166,14 +222,17 @@ class Pipeline:
         all_val_losses = []
         
         # Use AugmentedLOGO to ensure validation is on real users only and training excludes their augmented clones.
-        splits = logo.split(groups=users)
+        splits = list(logo.split(groups=users))
         
         for fold_idx, (train_idx, val_idx) in enumerate(tqdm(splits, desc="Inner Nested CV", leave=False)):
-            X_t, X_v = X[train_idx], X[val_idx] # split tensors directly
+            X_t = self._slice_data(X, train_idx)
+            X_v = self._slice_data(X, val_idx)
             y_t, y_v = y[train_idx], y[val_idx]
-            users_t = users[train_idx]
+            
+            # Determine Input Dims
+            input_dims = self.model_class.get_input_dims(X_t)
 
-            trainer = Trainer(self.model_class, X_t.shape[1], y_t.shape[1], params)
+            trainer = Trainer(self.model_class, input_dims, y_t.shape[1], params)
             trainer.train_model(X_t, y_t, epochs=self.config.get('epochs', 50))
             
             # Validate
@@ -190,50 +249,45 @@ class Pipeline:
             
         return loss, val_metrics
 
-    def _prepare_fold_data(self, X_t: np.ndarray, y_t: np.ndarray, X_v: np.ndarray, y_v: np.ndarray) -> tuple:
+    def _prepare_fold_data(self, X_t: tuple, y_t, X_v: tuple, y_v) -> tuple:
         """Helper to handle scaling and LASSO within the CV loop."""        
-        # Input Assumed: (N, F, T) where F=Features, T=Time
-        N_t, F, T = X_t.shape
-        N_v = X_v.shape[0]
-        
-        # Scale X (per feature, across time and samples)
-        # 1. Transpose to (N, T, F) so features are last for StandardScaler
-        Xt_trans = X_t.transpose(0, 2, 1)
-        Xv_trans = X_v.transpose(0, 2, 1)
-        
-        # 2. Reshape to (N*T, F)
-        Xt_flat = Xt_trans.reshape(-1, F)
-        Xv_flat = Xv_trans.reshape(-1, F)
-
-        # 3. Scale
-        scaler_x = StandardScaler()
-        Xt_s_flat = scaler_x.fit_transform(Xt_flat)
-        Xv_s_flat = scaler_x.transform(Xv_flat)
-        
-        # 4. Reshape back to (N, T, F)
-        Xt_s_trans = Xt_s_flat.reshape(N_t, T, F)
-        Xv_s_trans = Xv_s_flat.reshape(N_v, T, F)
-
-        # 5. Transpose back to (N, F, T)
-        Xt_final = Xt_s_trans.transpose(0, 2, 1)
-        Xv_final = Xv_s_trans.transpose(0, 2, 1)
-        
-        # Scale Y
         scaler_y = StandardScaler()
-        yt_s = scaler_y.fit_transform(y_t)
-        yv_s = scaler_y.transform(y_v)
+        yt_s = torch.FloatTensor(scaler_y.fit_transform(y_t))
+        yv_s = torch.FloatTensor(scaler_y.transform(y_v))
+        feat_idx = None
+
+        # Structure: (x_ts, x_path, x_user)
+        # 1. X_TS (N, P, F, T) -> Scale Per feature F across N, P, T
+        xt_ts, xv_ts = X_t[0], X_v[0]
+        N, P, F, T = xt_ts.shape
         
-        # LASSO
-        feat_idx = np.arange(F)
-        if self.config.get('use_lasso', False):
-            # Aggregate time dim for feature selection: (N, F, T) -> mean(axis=2) -> (N, F)
-            X_mean = Xt_final.mean(axis=2)
-            n_features = min(self.config.get("max_n_features"), F)
-            feat_idx, _ = select_features(X_mean, yt_s, n_features=n_features)
-            
-            Xt_final = Xt_final[:, feat_idx, :]
-            Xv_final = Xv_final[:, feat_idx, :]
-            
-        return (torch.FloatTensor(Xt_final), torch.FloatTensor(yt_s), 
-                torch.FloatTensor(Xv_final), torch.FloatTensor(yv_s), 
-                scaler_y, feat_idx)
+        # Reshape to flatten N, P, T -> (N*P*T, F) assuming scaling per feature
+        # Transpose to put F last
+        xt_ts_flat = xt_ts.transpose(0,1,3,2).reshape(-1, F)
+        xv_ts_flat = xv_ts.transpose(0,1,3,2).reshape(-1, F)
+        
+        scaler_ts = StandardScaler()
+        # Scaling
+        xt_ts_s = scaler_ts.fit_transform(xt_ts_flat).reshape(N, P, T, F).transpose(0,1,3,2)
+        xv_ts_s = scaler_ts.transform(xv_ts_flat).reshape(xv_ts.shape[0], P, T, F).transpose(0,1,3,2)
+        
+        # 2. X_PATH (N, P, Fp) -> Scale Per feature Fp across N, P
+        xt_path, xv_path = X_t[1], X_v[1]
+        N, P, Fp = xt_path.shape
+        xt_path_flat = xt_path.reshape(-1, Fp)
+        xv_path_flat = xv_path.reshape(-1, Fp)
+        
+        scaler_path = StandardScaler()
+        xt_path_s = scaler_path.fit_transform(xt_path_flat).reshape(N, P, Fp)
+        xv_path_s = scaler_path.transform(xv_path_flat).reshape(xv_path.shape[0], P, Fp)
+        
+        # 3. X_USER (N, Fu) -> Scale Per feature Fu across N
+        xt_user, xv_user = X_t[2], X_v[2]
+        scaler_user = StandardScaler()
+        xt_user_s = scaler_user.fit_transform(xt_user)
+        xv_user_s = scaler_user.transform(xv_user)
+
+        Xt_final = (torch.FloatTensor(xt_ts_s), torch.FloatTensor(xt_path_s), torch.FloatTensor(xt_user_s))
+        Xv_final = (torch.FloatTensor(xv_ts_s), torch.FloatTensor(xv_path_s), torch.FloatTensor(xv_user_s))
+        
+        return Xt_final, yt_s, Xv_final, yv_s, scaler_y, feat_idx

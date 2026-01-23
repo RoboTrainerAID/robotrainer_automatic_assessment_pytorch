@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, TensorDataset
 
 class PytorchDataset(Dataset):
     def __init__(self, X: torch.tensor, y: torch.tensor):
@@ -17,13 +17,22 @@ class PytorchDataset(Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
 
-def get_dataloader(X: torch.tensor, y: torch.tensor, batch_size, shuffle=True):
-    dataset = PytorchDataset(X, y)
+def get_dataloader(*tensors, batch_size, shuffle=True):
+    """
+    Creates a DataLoader from arbitrary number of tensors.
+    
+    Args:
+        *tensors: Variable number of tensors (X parts..., y)
+        batch_size (int): Size of batches
+        shuffle (bool): Whether to shuffle
+    """
+    dataset = TensorDataset(*tensors)
+    # Essential for fast GPU transfer: pin_memory=True
     return DataLoader(
         dataset, 
         batch_size=batch_size, 
         shuffle=shuffle, 
-        pin_memory=True # Essential for fast GPU transfer
+        pin_memory=True 
     )
 
 def get_root_groups(users):

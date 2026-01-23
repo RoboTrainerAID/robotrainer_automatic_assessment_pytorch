@@ -44,12 +44,13 @@ class VisualizationModule:
             # Use pre-calculated metrics if available (using simplified names)
             if f"test_r2_target_{i}" in self.metrics:
                 r2 = self.metrics[f"test_r2_target_{i}"]
-                mae = self.metrics[f"test_mae_target_{i}"]
+                rmse = self.metrics.get(f"test_rmse_target_{i}", 
+                                        np.sqrt(mean_squared_error(self.preds_df[target_col], self.preds_df[pred_col])))
             else:
                 r2 = r2_score(self.preds_df[target_col], self.preds_df[pred_col])
-                mae = mean_absolute_error(self.preds_df[target_col], self.preds_df[pred_col])
+                rmse = np.sqrt(mean_squared_error(self.preds_df[target_col], self.preds_df[pred_col]))
             
-            ax.set_title(f"Target {i}\n$R^2$: {r2:.2f} | MAE: {mae:.2f}")
+            ax.set_title(f"Target {i}\n$R^2$: {r2:.2f} | RMSE: {rmse:.2f}")
             ax.set_xlabel("Ground Truth (Scaled)")
             ax.set_ylabel("Predictions (Scaled)")
 

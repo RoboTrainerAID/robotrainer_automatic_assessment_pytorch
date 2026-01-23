@@ -107,4 +107,13 @@ class HierarchicalTimeseriesGemini2(BaseModel):
 
     @staticmethod
     def get_default_parameters() -> Dict[str, Any]:
-        return {"dropout": 0.2, "lr": 0.001, "ts_out_channels": 4, "num_conv_layers": 1, "path_dim": 16, "regressor_dim": 16}
+        return {
+            "dropout": 0.1,
+            "lr": 0.00027,
+            "ts_out_channels": 16,
+            "num_conv_layers": 2,
+            "path_dim": 8,
+            "regressor_dim": 64,
+            "weight_decay": 0.02,
+            "batch_size": 16,
+        }

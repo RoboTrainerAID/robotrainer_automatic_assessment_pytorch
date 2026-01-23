@@ -3,12 +3,24 @@ import pandas as pd
 import yaml
 from datetime import datetime
 import numpy as np
+import inspect
+import shutil
 
 class SavingModule:
     def __init__(self, model_name: str):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.output_dir = f"/workspace/experiment_results/{model_name}_{timestamp}"
         os.makedirs(self.output_dir, exist_ok=True)
+
+    def save_model_source(self, model_class):
+        try:
+            source_file = inspect.getsourcefile(model_class)
+            if source_file:
+                dst = os.path.join(self.output_dir, "model_source.py")
+                shutil.copy(source_file, dst)
+                print(f"Saved model source code to {dst}")
+        except Exception as e:
+            print(f"Could not save model source: {e}")
 
     def save_results(self, results: dict):
         fold_data = results.get('fold_data', [])

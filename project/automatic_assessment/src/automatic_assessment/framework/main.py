@@ -40,19 +40,19 @@ def main():
     
     config = {
         "epochs": 50,
-        "hyperparameter_mode": 'optimize_once', # 'default', 'optimize_once', 'optimize_every_fold'
-        "only_first_fold": False,  # For quick testing
+        "hyperparameter_mode": 'default', # 'default', 'optimize_once', 'optimize_every_fold'
+        "only_first_fold": True,  # For quick testing
         "n_trials": 120,  # Number of Optuna trials
         "use_lasso": False, 
         "max_n_features": 20,
-        "note": "Hperparameter search for Gemini1+2 model",
+        "note": "Experiment with saving the .py file",
     }
     
     # List of models to test
     # models_to_test = [SimpleMLP, CNN1D, HierarchicalCNN, HierarchicalAttentionNetwork
     # models_to_test = [HierarchicalTimeseriesChatGPT] 
     # models_to_test = [HierarchicalTimeseriesGemini]
-    models_to_test = [HierarchicalTimeseriesGemini1, HierarchicalTimeseriesGemini2]
+    models_to_test = [HierarchicalTimeseriesGemini2]
     # models_to_test = [HierarchicalTimeseriesChatGPTHyper]
     
     for model_class in models_to_test:
@@ -63,6 +63,7 @@ def main():
         
         pipeline = Pipeline(model_class, config)
         saver = SavingModule(model_name=f"{model_name}_NestedCV_MultiOutput")
+        saver.save_model_source(model_class)
 
         results = pipeline.run_nested_cv(X, y, users)
         

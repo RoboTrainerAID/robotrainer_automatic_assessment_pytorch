@@ -9,7 +9,7 @@ import shutil
 class SavingModule:
     def __init__(self, model_name: str):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.output_dir = f"/workspace/experiment_results/{model_name}_{timestamp}"
+        self.output_dir = f"/workspace/automatic_assessment/experiment_results/{timestamp}_{model_name}"
         os.makedirs(self.output_dir, exist_ok=True)
 
     def save_model_source(self, model_class):
@@ -66,6 +66,11 @@ class SavingModule:
             # Save Tuning Trials (Fold 0)
             if 'tuning_trials' in fold_data[0] and fold_data[0]['tuning_trials'] is not None:
                 fold_data[0]['tuning_trials'].to_csv(os.path.join(self.output_dir, "tuning_trials.csv"), index=False)
+            
+            # Save Parameter Importances (Fold 0)
+            if 'param_importances' in fold_data[0] and fold_data[0]['param_importances'] is not None:
+                importances_df = pd.DataFrame(list(fold_data[0]['param_importances'].items()), columns=['parameter', 'importance'])
+                importances_df.to_csv(os.path.join(self.output_dir, "param_importances.csv"), index=False)
                 
             # Save Attention Weights (Fold 0)
             if 'attention_weights' in fold_data[0] and fold_data[0]['attention_weights'] is not None:

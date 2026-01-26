@@ -65,6 +65,7 @@ class Pipeline:
             val_loss = 0.0
             val_metrics = {}
             tuning_trials = None
+            param_importances = None
             
             if hyperparameter_mode == 'default':
                 current_params = self.model_class.get_default_parameters()
@@ -74,7 +75,7 @@ class Pipeline:
             elif hyperparameter_mode == 'optimize_once':
                 if cached_best_params is None:
                     tqdm.write(f"[Outer Fold {fold_idx}] Optimizing Hyperparameters (Once)...")
-                    current_params, val_loss, val_metrics, tuning_trials = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
+                    current_params, val_loss, val_metrics, tuning_trials, param_importances = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
                     cached_best_params = current_params
                 else:
                     tqdm.write(f"[Outer Fold {fold_idx}] Reusing Cached Hyperparameters...")
@@ -83,7 +84,7 @@ class Pipeline:
                 
             elif hyperparameter_mode == 'optimize_every_fold':
                 tqdm.write(f"[Outer Fold {fold_idx}] Optimizing Hyperparameters...")
-                current_params, val_loss, val_metrics, tuning_trials = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
+                current_params, val_loss, val_metrics, tuning_trials, param_importances = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
 
             # --- 3. Final Model Training (Outer Loop) ---
             # Determine Input Dims Object
@@ -132,7 +133,8 @@ class Pipeline:
                 "val_metrics": val_metrics,
                 "history": history,
                 "tuning_trials": tuning_trials,
-                "attention_weights": attention_weights
+                "attention_weights": attention_weights,
+                "param_importances": param_importances
             }
             fold_data.append(fold_info)
 
@@ -181,7 +183,7 @@ class Pipeline:
         """Helper to slice tuple of arrays."""
         return tuple(x[indices] for x in X)
 
-    def _optimize_hyperparameters(self, X: tuple, y: torch.Tensor, users: np.ndarray) -> tuple[dict, float, dict, object]:
+    def _optimize_hyperparameters(self, X: tuple, y: torch.Tensor, users: np.ndarray) -> tuple[dict, float, dict, object, dict]:
         """Runs Optuna optimization using Inner LOGO."""
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         n_trials = self.config.get('n_trials', 30)
@@ -207,7 +209,13 @@ class Pipeline:
 
         best_val_metrics = study.best_trial.user_attrs["val_metrics"]
 
-        return study.best_params, study.best_trial.value, best_val_metrics, study.trials_dataframe()
+        # Calculate parameter importance
+        try:
+            importances = optuna.importance.get_param_importances(study)
+        except Exception:
+            importances = None
+
+        return study.best_params, study.best_trial.value, best_val_metrics, study.trials_dataframe(), importances
 
     def _evaluate_params_cv(self, X: tuple, y: torch.Tensor, users, params) -> tuple[float, dict]:
         """Runs LOGO CV on the provided data with given params."""

@@ -4,5 +4,5 @@ setup/.vendor/*
 *.bak
 legacy
 # project/*
-project/experiment_results/
+project/automatic_assessment/experiment_results/
 !project/.vscode

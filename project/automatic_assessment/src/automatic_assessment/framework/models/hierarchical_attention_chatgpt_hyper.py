@@ -128,6 +128,9 @@ class HierarchicalTimeseriesChatGPT(BaseModel):
             "d_path": trial.suggest_categorical("d_path", [8, 16, 32, 64]),
             "d_user": trial.suggest_categorical("d_user", [8, 16, 32, 64]),
             "use_attention": trial.suggest_categorical("use_attention", [True, False]),
+            "dropout": trial.suggest_float("dropout", 0.0, 0.4),
+            "weight_decay": trial.suggest_float("weight_decay", 1e-3, 1e-1, log=True),
+            "lr": trial.suggest_float("lr", 1e-4, 5e-3, log=True)
         }
 
     @staticmethod

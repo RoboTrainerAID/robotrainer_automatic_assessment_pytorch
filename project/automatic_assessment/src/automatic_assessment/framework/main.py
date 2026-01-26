@@ -39,20 +39,20 @@ def main():
     #     - Values: (135, 4)
     
     config = {
-        "epochs": 50,
-        "hyperparameter_mode": 'default', # 'default', 'optimize_once', 'optimize_every_fold'
-        "only_first_fold": True,  # For quick testing
-        "n_trials": 120,  # Number of Optuna trials
+        "epochs": 60,
+        "hyperparameter_mode": 'optimize_once', # 'default', 'optimize_once', 'optimize_every_fold'
+        "only_first_fold": False,  # For quick testing
+        "n_trials": 300,  # Number of Optuna trials
         "use_lasso": False, 
         "max_n_features": 20,
-        "note": "Experiment with saving the .py file",
+        "note": "First full hyperparmeter search for three models on workstation",
     }
     
     # List of models to test
     # models_to_test = [SimpleMLP, CNN1D, HierarchicalCNN, HierarchicalAttentionNetwork
     # models_to_test = [HierarchicalTimeseriesChatGPT] 
     # models_to_test = [HierarchicalTimeseriesGemini]
-    models_to_test = [HierarchicalTimeseriesGemini2]
+    models_to_test = [HierarchicalTimeseriesGemini2, HierarchicalTimeseriesGemini1, HierarchicalTimeseriesChatGPTHyper]
     # models_to_test = [HierarchicalTimeseriesChatGPTHyper]
     
     for model_class in models_to_test:

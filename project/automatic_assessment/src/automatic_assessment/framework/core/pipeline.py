@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import optuna
 import time
+import gc
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
@@ -65,6 +66,7 @@ class Pipeline:
             val_loss = 0.0
             val_metrics = {}
             tuning_trials = None
+            param_importances = None
             
             if hyperparameter_mode == 'default':
                 current_params = self.model_class.get_default_parameters()
@@ -74,7 +76,7 @@ class Pipeline:
             elif hyperparameter_mode == 'optimize_once':
                 if cached_best_params is None:
                     tqdm.write(f"[Outer Fold {fold_idx}] Optimizing Hyperparameters (Once)...")
-                    current_params, val_loss, val_metrics, tuning_trials = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
+                    current_params, val_loss, val_metrics, tuning_trials, param_importances = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
                     cached_best_params = current_params
                 else:
                     tqdm.write(f"[Outer Fold {fold_idx}] Reusing Cached Hyperparameters...")
@@ -83,7 +85,7 @@ class Pipeline:
                 
             elif hyperparameter_mode == 'optimize_every_fold':
                 tqdm.write(f"[Outer Fold {fold_idx}] Optimizing Hyperparameters...")
-                current_params, val_loss, val_metrics, tuning_trials = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
+                current_params, val_loss, val_metrics, tuning_trials, param_importances = self._optimize_hyperparameters(Xt_s, yt_s, users_t)
 
             # --- 3. Final Model Training (Outer Loop) ---
             # Determine Input Dims Object
@@ -132,7 +134,8 @@ class Pipeline:
                 "val_metrics": val_metrics,
                 "history": history,
                 "tuning_trials": tuning_trials,
-                "attention_weights": attention_weights
+                "attention_weights": attention_weights,
+                "param_importances": param_importances
             }
             fold_data.append(fold_info)
 
@@ -181,7 +184,7 @@ class Pipeline:
         """Helper to slice tuple of arrays."""
         return tuple(x[indices] for x in X)
 
-    def _optimize_hyperparameters(self, X: tuple, y: torch.Tensor, users: np.ndarray) -> tuple[dict, float, dict, object]:
+    def _optimize_hyperparameters(self, X: tuple, y: torch.Tensor, users: np.ndarray) -> tuple[dict, float, dict, object, dict]:
         """Runs Optuna optimization using Inner LOGO."""
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         n_trials = self.config.get('n_trials', 30)
@@ -200,14 +203,20 @@ class Pipeline:
                 trial.set_user_attr("val_metrics", val_metrics)
                 
                 pbar.update(1)
-                
+
                 return val_loss
 
-            study.optimize(objective, n_trials=n_trials)
+            study.optimize(objective, n_trials=n_trials, gc_after_trial=True)
 
         best_val_metrics = study.best_trial.user_attrs["val_metrics"]
 
-        return study.best_params, study.best_trial.value, best_val_metrics, study.trials_dataframe()
+        # Calculate parameter importance
+        try:
+            importances = optuna.importance.get_param_importances(study)
+        except Exception:
+            importances = None
+
+        return study.best_params, study.best_trial.value, best_val_metrics, study.trials_dataframe(), importances
 
     def _evaluate_params_cv(self, X: tuple, y: torch.Tensor, users, params) -> tuple[float, dict]:
         """Runs LOGO CV on the provided data with given params."""
@@ -237,6 +246,12 @@ class Pipeline:
             all_val_preds.append(val_preds)
             all_val_actuals.append(val_actuals)
             all_val_losses.append(val_loss)
+
+            # Cleanup trainer to free VRAM for next fold
+            trainer.cleanup()
+            del trainer
+            gc.collect()
+            torch.cuda.empty_cache()
             
         # Use shared metric calculation (list handling moved to metrics file)
         val_metrics = calculate_metrics(all_val_preds, all_val_actuals, prefix="val")

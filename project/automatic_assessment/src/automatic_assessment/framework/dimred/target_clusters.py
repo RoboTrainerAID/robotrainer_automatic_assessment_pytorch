@@ -168,7 +168,7 @@ def select_best_targets(X, target_df, groups):
 
 # Example usage:
 if __name__ == "__main__":
-    IN_DIR = "/data/dataset_conv@1s"
+    IN_DIR = "/data/dataset_conv@2hz"
 
     dataset = DatasetConv1s(path=IN_DIR, recreate=False)
     X, y, users, feature_names = dataset.get_path_level_dataset()

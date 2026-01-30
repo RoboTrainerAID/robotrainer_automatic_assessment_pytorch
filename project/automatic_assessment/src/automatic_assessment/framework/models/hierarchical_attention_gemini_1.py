@@ -98,11 +98,11 @@ class HierarchicalTimeseriesGemini1(BaseModel):
             "dropout": trial.suggest_float("dropout", 0.0, 0.4),
             "lr": trial.suggest_float("lr", 1e-4, 5e-3, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 1e-3, 1e-1, log=True),
-            "batch_size": trial.suggest_categorical("batch_size", [4, 8, 16]),
-            "ts_out_channels": trial.suggest_categorical("ts_out_channels", [4, 8, 16]),
+            "batch_size": trial.suggest_categorical("batch_size", [8, 16, 32]),
+            "ts_out_channels": trial.suggest_categorical("ts_out_channels", [8, 16, 32]),
             "num_conv_layers": trial.suggest_int("num_conv_layers", 1, 3),
-            "path_dim": trial.suggest_categorical("path_dim", [8, 16, 32, 64]),
-            "regressor_dim": trial.suggest_categorical("regressor_dim", [8, 16, 32, 64]),
+            "path_dim": trial.suggest_categorical("path_dim", [4, 8, 16, 32]),
+            "regressor_dim": trial.suggest_categorical("regressor_dim", [16, 32, 64, 128]),
         }
 
     @staticmethod

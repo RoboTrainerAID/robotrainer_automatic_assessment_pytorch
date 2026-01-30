@@ -21,7 +21,6 @@ def select_multitarget_top_sources_lars(X: pd.DataFrame, target_df: pd.DataFrame
     Ranks sources by how many targets selected them.
     Returns the 'top_n_sources' globally.
     """
-    top_k_per_target = int(top_n_sources / 2)
     source_votes = Counter()
     
     print(f"--- Running Multi-Target LARS on {target_df.shape[1]} targets ---")
@@ -51,7 +50,7 @@ def select_multitarget_top_sources_lars(X: pd.DataFrame, target_df: pd.DataFrame
                 source_votes[src] += 1
             
             # Stop once we have enough for this target
-            if len(found_sources) >= top_k_per_target:
+            if len(found_sources) >= top_n_sources:
                 break
         
         print(f"  > Target '{target_col}': identified {len(found_sources)} key sources.")

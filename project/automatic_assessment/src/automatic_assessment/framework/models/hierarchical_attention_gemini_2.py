@@ -13,9 +13,9 @@ class HierarchicalTimeseriesGemini2(BaseModel):
         
         ts_shape = input_dims[0]
         self.n_paths = ts_shape[1]      # 20
-        self.n_ts_per_path = ts_shape[2] # 20
-        self.ts_len = ts_shape[3]       # 79
-        self.f_path = input_dims[1][2]  # 110
+        self.n_ts_per_path = ts_shape[2] # 35
+        self.ts_len = ts_shape[3]       # 158
+        self.f_path = input_dims[1][2]  # 105
         self.f_user = input_dims[2][1]  # 2
         
         # Hyperparameters
@@ -49,7 +49,7 @@ class HierarchicalTimeseriesGemini2(BaseModel):
         self.path_bottleneck = nn.Sequential(
             nn.Linear(total_path_input, path_dim),
             nn.ReLU(),
-            nn.Dropout(hyperparams.get('dropout', 0.2))
+            nn.Dropout(hyperparams.get('dropout'))
         )
         
         # 3. LEARNABLE PATH WEIGHTS
@@ -61,7 +61,7 @@ class HierarchicalTimeseriesGemini2(BaseModel):
         self.regressor = nn.Sequential(
             nn.Linear(total_user_input, regressor_dim),
             nn.ReLU(),
-            nn.Dropout(hyperparams.get('dropout', 0.1)),
+            nn.Dropout(hyperparams.get('dropout')),
             nn.Linear(regressor_dim, output_dim) 
         )
 
@@ -98,11 +98,11 @@ class HierarchicalTimeseriesGemini2(BaseModel):
             "dropout": trial.suggest_float("dropout", 0.0, 0.4),
             "lr": trial.suggest_float("lr", 1e-4, 5e-3, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 1e-3, 1e-1, log=True),
-            "batch_size": trial.suggest_categorical("batch_size", [4, 8, 16]),
-            "ts_out_channels": trial.suggest_categorical("ts_out_channels", [4, 8, 16]),
+            "batch_size": trial.suggest_categorical("batch_size", [8, 16, 32]),
+            "ts_out_channels": trial.suggest_categorical("ts_out_channels", [8, 16, 32]),
             "num_conv_layers": trial.suggest_int("num_conv_layers", 1, 3),
-            "path_dim": trial.suggest_categorical("path_dim", [8, 16, 32, 64]),
-            "regressor_dim": trial.suggest_categorical("regressor_dim", [8, 16, 32, 64]),
+            "path_dim": trial.suggest_categorical("path_dim", [4, 8, 16, 32]),
+            "regressor_dim": trial.suggest_categorical("regressor_dim", [16, 32, 64, 128]),
         }
 
     @staticmethod

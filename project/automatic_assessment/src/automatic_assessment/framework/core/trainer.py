@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import gc
 
 from automatic_assessment.framework.data.data_utils import get_dataloader
 from automatic_assessment.framework.models.base import BaseModel
@@ -65,15 +66,26 @@ class Trainer:
             inputs = batch[:-1] 
             y = batch[-1]
             
+            # --- DATA MOVING TO VRAM ---
+            # The dataset resides in system RAM (from loader). 
+            # It is moved to VRAM (GPU) only here, for the current batch.
             inputs = [x.to(self.device) for x in inputs]
             y = y.to(self.device)
             
+            # Special hook for models like DummyMeanRegressor that need manual updates
+            if hasattr(self.model, "update_running_mean"):
+                self.model.update_running_mean(y)
+
             self.optimizer.zero_grad()
             # Pass list of inputs to model
             pred = self.model(inputs)
             loss = self.criterion(pred, y)
-            loss.backward()
-            self.optimizer.step()
+            
+            # This check is preventing crashes for analytical baselines like DummyMeanRegressor.
+            if loss.requires_grad:
+                loss.backward()
+                self.optimizer.step()
+                
             losses.append(loss.item())
         return float(np.mean(losses))
 
@@ -95,3 +107,38 @@ class Trainer:
                 preds.append(pred.cpu().numpy())
                 actuals.append(y.cpu().numpy())
         return float(np.mean(losses)), np.concatenate(preds), np.concatenate(actuals)
+
+    def cleanup(self):
+        """Explicitly release resources to avoid VRAM leaks."""
+        # 1. Clear Optimizer state (momentum buffers live on GPU)
+        if hasattr(self, 'optimizer') and self.optimizer is not None:
+            self.optimizer.zero_grad(set_to_none=True)
+            del self.optimizer
+        
+        # 2. Clear model and attached custom GPU tensors
+        if hasattr(self, 'model') and self.model is not None:
+            # Generic cleanup: Iterate over all attributes of the model
+            # and clear any that are Tensors but not Parameters/Buffers (which cpu() handles)
+            # This handles any other custom attributes that might be stuck on GPU
+            if hasattr(self.model, '__dict__'):
+                for key in list(self.model.__dict__.keys()):
+                    if isinstance(self.model.__dict__[key], torch.Tensor):
+                        self.model.__dict__[key] = None
+
+            self.model.cpu()
+            del self.model
+            
+        if hasattr(self, 'criterion'):
+            del self.criterion
+
+        # Clear scheduler
+        if hasattr(self, 'scheduler_class'):
+            del self.scheduler_class
+            
+        self.model = None
+        self.optimizer = None
+        self.criterion = None
+        self.scheduler_class = None
+        
+        gc.collect()
+        torch.cuda.empty_cache()

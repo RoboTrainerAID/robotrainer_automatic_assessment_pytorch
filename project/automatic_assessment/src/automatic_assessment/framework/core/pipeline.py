@@ -173,7 +173,7 @@ class Pipeline:
         tqdm.write("\n" + "="*40)
         tqdm.write(" MEAN VAL RESULTS ACROSS FOLDS ")
         tqdm.write(f" Mean Val Loss (Scaled Mean Huber): {np.mean([f['val_loss'] for f in fold_data]):.3f}")
-        tqdm.write(f" Mean Val RMSE (Scaled Mean): {np.mean([f['val_metrics'].get('val_rmse_mean', 0.0) for f in fold_data])::.3f}")
+        tqdm.write(f" Mean Val RMSE (Scaled Mean): {np.mean([f['val_metrics'].get('val_rmse_mean', 0.0) for f in fold_data]):.3f}")
         tqdm.write("="*40)
         
         

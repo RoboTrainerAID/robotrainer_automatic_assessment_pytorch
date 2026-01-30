@@ -17,6 +17,7 @@ from automatic_assessment.framework.models.hierarchical_attention_gemini_3 impor
 from automatic_assessment.framework.models.hierarchical_attention_gemini_21 import HierarchicalTimeseriesGemini21
 from automatic_assessment.framework.models.hierarchical_attention_gemini_22 import HierarchicalTimeseriesGemini22
 from automatic_assessment.framework.models.hierarchical_attention_gemini_22_LSTM import HierarchicalTimeseriesLSTM
+import automatic_assessment.framework.models.simple_models as simple_models
 from automatic_assessment.framework.reporting.saving import SavingModule
 from automatic_assessment.framework.reporting.visualization import VisualizationModule
 from automatic_assessment.framework.data.dataset import DatasetConv1s, DatasetFreq1hzAugmentedx4, DatasetFreq2hzAugmentedx4, DatasetFreq2hz
@@ -63,9 +64,9 @@ def main():
     singles_list = [[label] for label in all]
 
     # List of different target combinations
-    targets_to_test = [clusters] + singles_list
+    # targets_to_test = [clusters] + singles_list
     # targets_to_test = [all, clusters] + singles_list
-    # targets_to_test = [clusters]  # For quick testing
+    targets_to_test = [clusters]  # For quick testing
 
     for target_set in targets_to_test:
         print(f"\n\n=== Selecting Targets: {target_set} ===\n")
@@ -83,7 +84,7 @@ def main():
     
         config = {
             "epochs": 50,
-            "hyperparameter_mode": 'optimize_once', # 'default', 'optimize_once', 'optimize_every_fold'
+            "hyperparameter_mode": 'default', # 'default', 'optimize_once', 'optimize_every_fold'
             "only_first_fold": False,  # For quick testing
             "n_trials": 200,  # Number of Optuna trials
             "use_lasso": False, 
@@ -100,6 +101,7 @@ def main():
         # models_to_test = [HierarchicalTimeseriesChatGPTHyper]
         models_to_test = [HierarchicalTimeseriesGemini21, HierarchicalTimeseriesLSTM]
         # models_to_test = [HierarchicalTimeseriesLSTM]
+        models_to_test = [simple_models.ElasticNetModel, simple_models.LinearRegressionModel, simple_models.RandomForestLikeMLP, simple_models.SimpleMLPRegressor]
         
         for model_class in models_to_test:
             model_name = model_class.model_name

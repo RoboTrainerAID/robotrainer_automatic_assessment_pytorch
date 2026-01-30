@@ -12,6 +12,7 @@ from automatic_assessment.framework.data.data_utils import AugmentedLOGO
 from automatic_assessment.framework.dimred.lasso import select_features
 from automatic_assessment.framework.reporting.metrics import calculate_metrics
 from automatic_assessment.framework.utils.time_utils import start_timer, stop_timer
+from automatic_assessment.framework.baselines.dummy import DummyBaseline
 
 class Pipeline:
     def __init__(self, model_class, config):
@@ -43,6 +44,9 @@ class Pipeline:
         all_test_actuals = []
         all_test_losses = []
 
+        all_dummy_preds = []
+        all_dummy_losses = []
+
         # --- Print Model Summary Once ---
         self.model_class.print_summary(X, y)
 
@@ -60,7 +64,7 @@ class Pipeline:
 
             # --- 1. Scale and Select Features (On Outer Train) ---
             Xt_s, yt_s, Xtest_s, ytest_s, scaler_y, feat_idx = self._prepare_fold_data(X_t, y_t, X_test, y_test)
-            
+
             # --- 2. Hyperparameter Determination (Inner Loop) ---
             current_params = None
             val_loss = 0.0
@@ -114,18 +118,25 @@ class Pipeline:
             # Note: test_loss is Huber Loss. Metrics are computed explicitly below.
             test_loss, test_preds, test_actuals = trainer.evaluate_model(Xtest_s, ytest_s)
 
+            # --- Run Dummy Baseline ---
+            dummy_baseline = DummyBaseline()
+            dummy_preds, dummy_loss = dummy_baseline.run(yt_s, ytest_s)
+
             val_rmse_str = f"{val_metrics.get('val_rmse_mean', 0.0):.3f}"
-            tqdm.write(f"[Outer Fold {fold_idx}] | Test User {users[test_idx][0]}: sLoss {test_loss:.3f} | Inner Val: sLoss {val_loss:.3f}, sRMSE {val_rmse_str}")
+            tqdm.write(f"[Outer Fold {fold_idx}] | Test User {users[test_idx][0]}: sLoss {test_loss:.3f} | Inner Val: sLoss {val_loss:.3f}, sRMSE {val_rmse_str} | Baseline Loss: {dummy_loss:.3f}")
 
             # 2. Accumulate for Global Metrics
             all_test_preds.append(test_preds)
             all_test_actuals.append(test_actuals)
             all_test_losses.append(test_loss)
+            all_dummy_preds.append(dummy_preds)
+            all_dummy_losses.append(dummy_loss)
 
             fold_info = {
                 "fold": fold_idx,
                 "user_id": users[test_idx][0],
                 "test_loss": test_loss,
+                "baseline_loss": dummy_loss,
                 "val_loss": val_loss,
                 "test_preds": test_preds,
                 "test_actuals": test_actuals,
@@ -156,10 +167,13 @@ class Pipeline:
         test_metrics = calculate_metrics(all_test_actuals, all_test_preds, prefix="test")
         test_loss = float(np.mean(all_test_losses))
 
+        baseline_metrics = calculate_metrics(all_test_actuals, all_dummy_preds, prefix="baseline")
+        baseline_loss = float(np.mean(all_dummy_losses))
+
         tqdm.write("\n" + "="*40)
         tqdm.write(" MEAN VAL RESULTS ACROSS FOLDS ")
         tqdm.write(f" Mean Val Loss (Scaled Mean Huber): {np.mean([f['val_loss'] for f in fold_data]):.3f}")
-        tqdm.write(f" Mean Val RMSE (Scaled Mean): {np.mean([f['val_metrics'].get('val_rmse_mean', 0.0) for f in fold_data]):.3f}")
+        tqdm.write(f" Mean Val RMSE (Scaled Mean): {np.mean([f['val_metrics'].get('val_rmse_mean', 0.0) for f in fold_data])::.3f}")
         tqdm.write("="*40)
         
         
@@ -168,11 +182,16 @@ class Pipeline:
         tqdm.write(f" Test Loss (Scaled Mean Huber): {test_loss:.3f}")
         tqdm.write(f" Test RMSE (Scaled Mean): {test_metrics['test_rmse_mean']:.3f}")
         tqdm.write(f" Test R2 (Scaled Mean):   {test_metrics['test_r2_mean']:.3f}")
+        tqdm.write("-" * 20)
+        tqdm.write(f" Baseline Loss: {baseline_loss:.3f}")
+        tqdm.write(f" Baseline RMSE: {baseline_metrics['baseline_rmse_mean']:.3f}")
         tqdm.write("="*40 + "\n")
 
         final_results = {
             "test_metrics": test_metrics,
+            "baseline_metrics": baseline_metrics,
             "test_loss": test_loss,
+            "baseline_loss": baseline_loss,
             "fold_data": fold_data,
             "experiment_info": experiment_meta,
             "pipeline_config": self.config

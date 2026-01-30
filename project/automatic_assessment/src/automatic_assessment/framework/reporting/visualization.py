@@ -216,7 +216,7 @@ class VisualizationModule:
     def generate_rmse_comparison(self):
         """
         Generates a grouped bar chart comparing Validation and Test RMSE for each target.
-        Includes a baseline line at RMSE=1.0.
+        Includes a baseline line at RMSE=1.0 and points for the dummy baseline.
         """
         if not self.metrics:
             print("No metrics loaded for RMSE comparison.")
@@ -228,6 +228,10 @@ class VisualizationModule:
         # Identify target indices from keys like 'test_rmse_target_0' or 'mean_val_rmse_target_0'
         for key, value in self.metrics.items():
             if "rmse_target" not in key:
+                continue
+            
+            # Skip baseline metrics here, we handle them separately
+            if "baseline" in key:
                 continue
                 
             parts = key.split('_')
@@ -261,7 +265,7 @@ class VisualizationModule:
         plt.figure(figsize=(10, 6))
         sns.set_theme(style="whitegrid")
         
-        sns.barplot(
+        ax = sns.barplot(
             data=df_plot, 
             x='Target', 
             y='RMSE', 
@@ -269,8 +273,34 @@ class VisualizationModule:
             palette="muted"
         )
         
-        # Add Random Guessing Baseline
-        plt.axhline(y=1.0, color='black', linestyle='--', linewidth=2, label='Random Guessing (RMSE=1.0)')
+        # Add Random Guessing Baseline (Theoretical)
+        plt.axhline(y=1.0, color='black', linestyle='--', linewidth=2, label='Theoretical Baseline (RMSE=1.0)')
+        
+        # Add Actual Calculated Dummy Baseline (Per Target)
+        baseline_vals = {}
+        for key, value in self.metrics.items():
+            if key.startswith("baseline_rmse_target_"):
+                # key format: baseline_rmse_target_0
+                try:
+                    t_idx = int(key.split('_')[-1])
+                    baseline_vals[f"Target {t_idx}"] = float(value)
+                except:
+                    continue
+        
+        # Map values to x-coordinates
+        # The x-axis ticks are categorical: "Target 0", "Target 1"...
+        targets_on_axis = [t.get_text() for t in ax.get_xticklabels()]
+        
+        baseline_x = []
+        baseline_y = []
+        
+        for i, target_label in enumerate(targets_on_axis):
+            if target_label in baseline_vals:
+                baseline_x.append(i)
+                baseline_y.append(baseline_vals[target_label])
+                
+        if baseline_x:
+            plt.scatter(baseline_x, baseline_y, color='red', marker='D', s=50, zorder=5, label='Actual Dummy Baseline')
         
         plt.title("RMSE Comparison: Validation vs Test per Target", fontsize=16)
         plt.ylabel("RMSE (Scaled)", fontsize=12)

@@ -316,7 +316,7 @@ class DatasetFreq2hzAugmentedx4(Dataset):
 
 if __name__ == "__main__":
     # dataset = Dataset(sampling_frequency=2, folder_path="/data/test", recreate=True)
-    dataset = DatasetConv1s(recreate=True)
+    dataset = DatasetFreq2hz(recreate=False)
     dataset.create_augmented_dataset(augmentation_ratio=4, subfolder="augmentedx4")
     # --> DatasetFreq2hzAugmentedx4
     

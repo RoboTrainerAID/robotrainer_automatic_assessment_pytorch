@@ -14,8 +14,8 @@ class Trainer:
         self.criterion = nn.HuberLoss(delta=1.0)
 
         # Improvement 1: AdamW with high weight decay for small datasets
-        wd = params.get('weight_decay')
-        lr = params.get('lr')
+        wd = params.get('weight_decay', 1e-4)
+        lr = params.get('lr', 1e-3)
         
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), 

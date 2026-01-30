@@ -15,7 +15,7 @@ class SavingModule:
     def save_model_source(self, model_class):
         try:
             source_file = inspect.getsourcefile(model_class)
-            if source_file:
+            if (source_file):
                 dst = os.path.join(self.output_dir, "model_source.py")
                 shutil.copy(source_file, dst)
                 print(f"Saved model source code to {dst}")
@@ -25,6 +25,7 @@ class SavingModule:
     def save_results(self, results: dict):
         fold_data = results.get('fold_data', [])
         test_metrics = results.get('test_metrics', {})
+        baseline_metrics = results.get('baseline_metrics', {})
         experiment_info = results.get('experiment_info', {})
         pipeline_config = results.get('pipeline_config', {})
         
@@ -103,6 +104,11 @@ class SavingModule:
         # 3. Save Summary Metrics
         summary = test_metrics.copy()
         
+        # Merge baseline metrics
+        summary.update(baseline_metrics)
+        summary['test_loss'] = results.get('test_loss', 0.0)
+        summary['baseline_loss'] = results.get('baseline_loss', 0.0)
+        
         # Add per-fold summaries
         summary["fold_metrics"] = []
         
@@ -114,6 +120,7 @@ class SavingModule:
                 "fold": f["fold"],
                 "user_id": int(f["user_id"]),
                 "test_loss": float(f["test_loss"]),
+                "baseline_loss": float(f.get("baseline_loss", 0.0))
             }
             # No longer merging test_fold_metrics since they were removed
                 

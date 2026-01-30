@@ -13,9 +13,9 @@ class HierarchicalTimeseriesGemini2(BaseModel):
         
         ts_shape = input_dims[0]
         self.n_paths = ts_shape[1]      # 20
-        self.n_ts_per_path = ts_shape[2] # 20
-        self.ts_len = ts_shape[3]       # 79
-        self.f_path = input_dims[1][2]  # 110
+        self.n_ts_per_path = ts_shape[2] # 35
+        self.ts_len = ts_shape[3]       # 158
+        self.f_path = input_dims[1][2]  # 105
         self.f_user = input_dims[2][1]  # 2
         
         # Hyperparameters

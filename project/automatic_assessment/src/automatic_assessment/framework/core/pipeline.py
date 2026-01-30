@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import optuna
 import time
+import gc
 from datetime import datetime
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
@@ -202,10 +203,10 @@ class Pipeline:
                 trial.set_user_attr("val_metrics", val_metrics)
                 
                 pbar.update(1)
-                
+
                 return val_loss
 
-            study.optimize(objective, n_trials=n_trials)
+            study.optimize(objective, n_trials=n_trials, gc_after_trial=True)
 
         best_val_metrics = study.best_trial.user_attrs["val_metrics"]
 
@@ -245,6 +246,12 @@ class Pipeline:
             all_val_preds.append(val_preds)
             all_val_actuals.append(val_actuals)
             all_val_losses.append(val_loss)
+
+            # Cleanup trainer to free VRAM for next fold
+            trainer.cleanup()
+            del trainer
+            gc.collect()
+            torch.cuda.empty_cache()
             
         # Use shared metric calculation (list handling moved to metrics file)
         val_metrics = calculate_metrics(all_val_preds, all_val_actuals, prefix="val")

@@ -12,7 +12,7 @@ from automatic_assessment.framework.data.data_utils import AugmentedLOGO
 from automatic_assessment.framework.dimred.lasso import select_features
 from automatic_assessment.framework.reporting.metrics import calculate_metrics
 from automatic_assessment.framework.utils.time_utils import start_timer, stop_timer
-from automatic_assessment.framework.baselines.dummy import DummyBaseline
+from automatic_assessment.framework.models.dummy import DummyBaseline
 
 class Pipeline:
     def __init__(self, model_class, config):

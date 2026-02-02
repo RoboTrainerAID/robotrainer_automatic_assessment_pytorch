@@ -151,7 +151,7 @@ class HierarchicalTimeseriesGemini21(BaseModel):
             "regressor_dim": trial.suggest_categorical("regressor_dim", [32, 64, 128, 256]),
             
             # New Attention Parameter
-            "path_attention_type": trial.suggest_categorical("path_attention_type", ["gated", "static", "mean"]),
+            "path_attention_type": trial.suggest_categorical("path_attention_type", ["mean"]), #["gated", "static", "mean"]
             
             # Optimization
             # Centered on best: LR ~1.6e-4, Decay ~5e-3
@@ -160,7 +160,7 @@ class HierarchicalTimeseriesGemini21(BaseModel):
             
             # Regularization
             # Centered on best: 0.26
-            "dropout": trial.suggest_float("dropout", 0.1, 0.4),
+            "dropout": trial.suggest_float("dropout", 0.2, 0.5),
             
             # Batch Size
             "batch_size": trial.suggest_categorical("batch_size", [16])
@@ -172,11 +172,11 @@ class HierarchicalTimeseriesGemini21(BaseModel):
         return {
             "batch_size": 16,
             "dropout": 0.2480023388377924,
-            "lr": 0.00020238289442738426,
-            "weight_decay": 0.003714173290760425,
+            "lr": 0.00015565288829063982,
+            "weight_decay": 0.0018028150752207402,
             "ts_out_channels": 16,
             "num_conv_layers": 2,
             "path_dim": 4,
-            "regressor_dim": 128,
+            "regressor_dim": 256,
             "path_attention_type": "mean"
         }

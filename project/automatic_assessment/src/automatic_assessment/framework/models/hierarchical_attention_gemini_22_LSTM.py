@@ -177,21 +177,21 @@ class HierarchicalTimeseriesLSTM(BaseModel):
 
             # LSTM architecture
             "lstm_hidden_dim": trial.suggest_categorical("lstm_hidden_dim", [8, 16, 32]),
-            "lstm_layers": trial.suggest_int("lstm_layers", 1, 3),
-            "bidirectional": trial.suggest_categorical("bidirectional", [False, True]),
-            "dropout_lstm": trial.suggest_float("dropout_lstm", 0.0, 0.3),
+            "lstm_layers": trial.suggest_int("lstm_layers", 2, 2),
+            "bidirectional": trial.suggest_categorical("bidirectional", [False]),
+            "dropout_lstm": trial.suggest_float("dropout_lstm", 0.1, 0.3),
 
             # Path-level
-            "path_dim": trial.suggest_categorical("path_dim", [8, 16, 32]),
-            "dropout_path": trial.suggest_float("dropout_path", 0.1, 0.35),
+            "path_dim": trial.suggest_categorical("path_dim", [8, 16]),
+            "dropout_path": trial.suggest_float("dropout_path", 0.2, 0.4),
 
             # Regressor
-            "regressor_dim": trial.suggest_categorical("regressor_dim", [64, 128, 256, 512]),
-            "dropout_reg": trial.suggest_float("dropout_reg", 0.1, 0.35),
+            "regressor_dim": trial.suggest_categorical("regressor_dim", [128, 256, 512]),
+            "dropout_reg": trial.suggest_float("dropout_reg", 0.2, 0.4),
 
             # Aggregation mechanism
             "path_aggregation": trial.suggest_categorical(
-                "path_aggregation", ["mean", "static", "attention"]
+                "path_aggregation", ["static"] # ["mean", "static", "attention"]
             ),
 
             # Batch Size
@@ -201,16 +201,16 @@ class HierarchicalTimeseriesLSTM(BaseModel):
     @staticmethod
     def get_default_parameters() -> Dict[str, Any]:
         return {
-            "lr": 0.00024131443163738766,
-            "weight_decay": 0.002209466629569444,
+            "lr": 0.00022750546852567957,
+            "weight_decay": 0.002030321309567903,
             "lstm_hidden_dim": 16,
-            "lstm_layers": 1,
+            "lstm_layers": 2,
             "bidirectional": False,
-            "dropout_lstm": 0.15286409932413358,
-            "path_dim": 16,
-            "dropout_path": 0.3159279699167164,
+            "dropout_lstm": 0.21296944295340778,
+            "path_dim": 8,
+            "dropout_path": 0.32310768642810067,
             "regressor_dim": 256,
-            "dropout_reg": 0.2796310905629553,
-            "path_aggregation": "attention",
+            "dropout_reg": 0.19103391951416035,
+            "path_aggregation": "static",
             "batch_size": 16
         }

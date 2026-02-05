@@ -1,0 +1,51 @@
+experiment_info:
+  start_time: '2026-02-01 21:45:11'
+  duration: 0:35:09
+  input_shapes:
+    shape_X_ts:
+    - 112
+    - 20
+    - 39
+    - 158
+    shape_X_path:
+    - 112
+    - 20
+    - 107
+    shape_X_user:
+    - 112
+    - 2
+    shape_y:
+    - 112
+    - 14
+  total_model_parameters: 32398
+pipeline_config:
+  epochs: 50
+  hyperparameter_mode: optimize_once
+  only_first_fold: false
+  n_trials: 50
+  use_lasso: false
+  max_n_features: 20
+  targets:
+  - Balance Test
+  - Single Leg Stance
+  - Robotrainer Front
+  - Robotrainer Left
+  - Robotrainer Right
+  - Hand Grip Left
+  - Hand Grip Right
+  - Jump & Reach
+  - Tandem Walk
+  - Figure 8 Walk
+  - Jumping Sideways
+  - Throwing Beanbag at Target
+  - Tapping Test
+  - Ruler Drop Test
+  augmentation_ratio: 3
+  note: Multitarget to all single target comparison
+hyperparameters_fold_0:
+  aggregation: mean
+  hidden_dim: 128
+  depth: 2
+  dropout: 0.3912183342674912
+  lr: 0.0004458843086832708
+  weight_decay: 9.435880932142043e-05

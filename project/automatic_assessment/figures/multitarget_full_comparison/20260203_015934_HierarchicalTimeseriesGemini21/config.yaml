@@ -1,0 +1,41 @@
+experiment_info:
+  start_time: '2026-02-03 02:59:34'
+  duration: 0:48:42
+  input_shapes:
+    shape_X_ts:
+    - 112
+    - 20
+    - 37
+    - 158
+    shape_X_path:
+    - 112
+    - 20
+    - 107
+    shape_X_user:
+    - 112
+    - 2
+    shape_y:
+    - 112
+    - 1
+  total_model_parameters: 13441
+pipeline_config:
+  epochs: 50
+  hyperparameter_mode: optimize_once
+  only_first_fold: false
+  n_trials: 50
+  use_lasso: false
+  max_n_features: 20
+  targets:
+  - Robotrainer Left
+  augmentation_ratio: 3
+  note: Multitarget to all single target comparison
+hyperparameters_fold_0:
+  ts_out_channels: 16
+  num_conv_layers: 2
+  path_dim: 16
+  regressor_dim: 256
+  path_attention_type: mean
+  lr: 0.0004102632310381541
+  weight_decay: 0.0049233014544541286
+  dropout: 0.4843896397364693
+  batch_size: 16

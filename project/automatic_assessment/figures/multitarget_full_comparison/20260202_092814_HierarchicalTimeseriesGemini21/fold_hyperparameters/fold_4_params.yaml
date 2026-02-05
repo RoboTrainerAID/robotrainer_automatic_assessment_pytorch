@@ -1,0 +1,9 @@
+batch_size: 16
+dropout: 0.41777305268164794
+lr: 0.00015908395568744454
+num_conv_layers: 2
+path_attention_type: mean
+path_dim: 4
+regressor_dim: 256
+ts_out_channels: 16
+weight_decay: 0.0031750917442371377

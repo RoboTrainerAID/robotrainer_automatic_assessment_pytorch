@@ -1,0 +1,44 @@
+experiment_info:
+  start_time: '2026-02-04 12:48:44'
+  duration: '1:08:41'
+  input_shapes:
+    shape_X_ts:
+    - 112
+    - 20
+    - 39
+    - 158
+    shape_X_path:
+    - 112
+    - 20
+    - 105
+    shape_X_user:
+    - 112
+    - 2
+    shape_y:
+    - 112
+    - 1
+  total_model_parameters: 25141
+pipeline_config:
+  epochs: 50
+  hyperparameter_mode: optimize_once
+  only_first_fold: false
+  n_trials: 50
+  use_lasso: false
+  max_n_features: 20
+  targets:
+  - Jumping Sideways
+  augmentation_ratio: 3
+  note: Multitarget to all single target comparison
+hyperparameters_fold_0:
+  lr: 0.00042941490976886715
+  weight_decay: 0.005050803012646352
+  lstm_hidden_dim: 32
+  lstm_layers: 2
+  bidirectional: false
+  dropout_lstm: 0.2136565819014473
+  path_dim: 16
+  dropout_path: 0.25522964789931263
+  regressor_dim: 256
+  dropout_reg: 0.26383880636168017
+  path_aggregation: static
+  batch_size: 16

@@ -1,0 +1,44 @@
+experiment_info:
+  start_time: '2026-02-03 12:30:45'
+  duration: '1:02:23'
+  input_shapes:
+    shape_X_ts:
+    - 112
+    - 20
+    - 39
+    - 158
+    shape_X_path:
+    - 112
+    - 20
+    - 104
+    shape_X_user:
+    - 112
+    - 2
+    shape_y:
+    - 112
+    - 1
+  total_model_parameters: 9093
+pipeline_config:
+  epochs: 50
+  hyperparameter_mode: optimize_once
+  only_first_fold: false
+  n_trials: 50
+  use_lasso: false
+  max_n_features: 20
+  targets:
+  - Hand Grip Left
+  augmentation_ratio: 3
+  note: Multitarget to all single target comparison
+hyperparameters_fold_0:
+  lr: 0.0003019587996947155
+  weight_decay: 0.002883632900525255
+  lstm_hidden_dim: 8
+  lstm_layers: 2
+  bidirectional: false
+  dropout_lstm: 0.29410318204165586
+  path_dim: 16
+  dropout_path: 0.2368447386279525
+  regressor_dim: 256
+  dropout_reg: 0.3425551173054385
+  path_aggregation: static
+  batch_size: 16

@@ -1,0 +1,38 @@
+experiment_info:
+  start_time: '2026-02-04 06:07:23'
+  duration: 0:45:31
+  input_shapes:
+    shape_X_ts:
+    - 112
+    - 20
+    - 39
+    - 158
+    shape_X_path:
+    - 112
+    - 20
+    - 104
+    shape_X_user:
+    - 112
+    - 2
+    shape_y:
+    - 112
+    - 1
+  total_model_parameters: 5569
+pipeline_config:
+  epochs: 50
+  hyperparameter_mode: optimize_once
+  only_first_fold: false
+  n_trials: 50
+  use_lasso: false
+  max_n_features: 20
+  targets:
+  - Tandem Walk
+  augmentation_ratio: 3
+  note: Multitarget to all single target comparison
+hyperparameters_fold_0:
+  aggregation: mean
+  hidden_dim: 32
+  depth: 3
+  dropout: 0.0013887897002540228
+  lr: 0.00010143408334491885
+  weight_decay: 0.0015831860358975793

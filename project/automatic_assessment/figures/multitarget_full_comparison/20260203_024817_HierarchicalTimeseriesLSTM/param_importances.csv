@@ -1,0 +1,13 @@
+parameter,importance
+lr,0.5327511775947538
+regressor_dim,0.16715461311993354
+dropout_reg,0.1427726345430671
+dropout_lstm,0.07435090194793242
+path_dim,0.03850567368692125
+dropout_path,0.03456742120234819
+weight_decay,0.007314455795406823
+lstm_hidden_dim,0.002583122109637029
+path_aggregation,0.0
+lstm_layers,0.0
+bidirectional,0.0
+batch_size,0.0

@@ -1,0 +1,38 @@
+experiment_info:
+  start_time: '2026-01-30 14:39:48'
+  duration: 0:13:59
+  input_shapes:
+    shape_X_ts:
+    - 140
+    - 20
+    - 39
+    - 158
+    shape_X_path:
+    - 140
+    - 20
+    - 107
+    shape_X_user:
+    - 140
+    - 2
+    shape_y:
+    - 140
+    - 4
+  total_model_parameters: 440
+pipeline_config:
+  epochs: 50
+  hyperparameter_mode: default
+  only_first_fold: false
+  n_trials: 200
+  use_lasso: false
+  max_n_features: 20
+  targets:
+  - Balance Test
+  - Single Leg Stance
+  - Hand Grip Right
+  - Throwing Beanbag at Target
+  note: Third full hyperparmeter search with single targets
+hyperparameters_fold_0:
+  aggregation: mean
+  lr: 0.001
+  alpha: 0.01
+  l1_ratio: 0.5

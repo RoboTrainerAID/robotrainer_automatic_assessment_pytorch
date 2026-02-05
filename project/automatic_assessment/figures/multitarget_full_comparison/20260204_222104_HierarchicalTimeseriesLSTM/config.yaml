@@ -1,0 +1,44 @@
+experiment_info:
+  start_time: '2026-02-04 23:21:04'
+  duration: '1:09:40'
+  input_shapes:
+    shape_X_ts:
+    - 112
+    - 20
+    - 39
+    - 158
+    shape_X_path:
+    - 112
+    - 20
+    - 105
+    shape_X_user:
+    - 112
+    - 2
+    shape_y:
+    - 112
+    - 1
+  total_model_parameters: 9109
+pipeline_config:
+  epochs: 50
+  hyperparameter_mode: optimize_once
+  only_first_fold: false
+  n_trials: 50
+  use_lasso: false
+  max_n_features: 20
+  targets:
+  - Tapping Test
+  augmentation_ratio: 3
+  note: Multitarget to all single target comparison
+hyperparameters_fold_0:
+  lr: 0.0004954489945856678
+  weight_decay: 0.0024194372701486777
+  lstm_hidden_dim: 8
+  lstm_layers: 2
+  bidirectional: false
+  dropout_lstm: 0.16013968684873375
+  path_dim: 16
+  dropout_path: 0.22327125547107343
+  regressor_dim: 256
+  dropout_reg: 0.35454533700242635
+  path_aggregation: static
+  batch_size: 16

@@ -1,0 +1,129 @@
+baseline_loss: 0.47153369155213504
+baseline_mae_mean: 0.8439673781394958
+baseline_mae_target_0: 0.8439673781394958
+baseline_r2_mean: -2.562999725341797e-05
+baseline_r2_target_0: -2.562999725341797e-05
+baseline_rmse_mean: 1.0888850688934326
+baseline_rmse_target_0: 1.0888850688934326
+fold_metrics:
+- baseline_loss: 0.04464993625879288
+  fold: 0
+  test_loss: 0.34906667470932007
+  user_id: 1
+- baseline_loss: 0.03227638453245163
+  fold: 1
+  test_loss: 0.8881027698516846
+  user_id: 2
+- baseline_loss: 0.9307371377944946
+  fold: 2
+  test_loss: 0.5016806125640869
+  user_id: 3
+- baseline_loss: 0.3336723744869232
+  fold: 3
+  test_loss: 0.19344717264175415
+  user_id: 4
+- baseline_loss: 1.6273283958435059
+  fold: 4
+  test_loss: 1.5069999694824219
+  user_id: 5
+- baseline_loss: 0.9755791425704956
+  fold: 5
+  test_loss: 0.8323863744735718
+  user_id: 6
+- baseline_loss: 0.014532423578202724
+  fold: 6
+  test_loss: 0.0339057557284832
+  user_id: 7
+- baseline_loss: 0.23131556808948517
+  fold: 7
+  test_loss: 0.1320171356201172
+  user_id: 8
+- baseline_loss: 1.121009111404419
+  fold: 8
+  test_loss: 0.3726635277271271
+  user_id: 9
+- baseline_loss: 0.12075605243444443
+  fold: 9
+  test_loss: 0.0009419399430043995
+  user_id: 10
+- baseline_loss: 0.6271892786026001
+  fold: 10
+  test_loss: 0.06697134673595428
+  user_id: 11
+- baseline_loss: 0.002064317464828491
+  fold: 11
+  test_loss: 0.07476994395256042
+  user_id: 12
+- baseline_loss: 1.0832291841506958
+  fold: 12
+  test_loss: 0.8306715488433838
+  user_id: 13
+- baseline_loss: 0.03229774162173271
+  fold: 13
+  test_loss: 0.08815282583236694
+  user_id: 14
+- baseline_loss: 0.07393460720777512
+  fold: 14
+  test_loss: 0.06080356240272522
+  user_id: 15
+- baseline_loss: 0.010706513188779354
+  fold: 15
+  test_loss: 0.0381833016872406
+  user_id: 16
+- baseline_loss: 0.6522923707962036
+  fold: 16
+  test_loss: 0.8826444149017334
+  user_id: 17
+- baseline_loss: 0.4072851538658142
+  fold: 17
+  test_loss: 0.04554219916462898
+  user_id: 18
+- baseline_loss: 0.0021714039612561464
+  fold: 18
+  test_loss: 0.14343148469924927
+  user_id: 19
+- baseline_loss: 0.1803542822599411
+  fold: 19
+  test_loss: 0.000810362515039742
+  user_id: 20
+- baseline_loss: 0.4083482623100281
+  fold: 20
+  test_loss: 0.929326057434082
+  user_id: 21
+- baseline_loss: 2.4472732543945312
+  fold: 21
+  test_loss: 1.1824780702590942
+  user_id: 22
+- baseline_loss: 0.23258471488952637
+  fold: 22
+  test_loss: 0.18918919563293457
+  user_id: 23
+- baseline_loss: 1.2438148260116577
+  fold: 23
+  test_loss: 0.5243982076644897
+  user_id: 24
+- baseline_loss: 0.07389084994792938
+  fold: 24
+  test_loss: 0.04451264068484306
+  user_id: 25
+- baseline_loss: 0.07445120066404343
+  fold: 25
+  test_loss: 0.005659542977809906
+  user_id: 26
+- baseline_loss: 0.10904678702354431
+  fold: 26
+  test_loss: 0.025656046345829964
+  user_id: 27
+- baseline_loss: 0.11015208810567856
+  fold: 27
+  test_loss: 0.35039448738098145
+  user_id: 28
+mean_val_rmse_mean: 0.8950373764548983
+mean_val_rmse_target_0: 0.8950373764548983
+test_loss: 0.3676716847091614
+test_mae_mean: 0.7312875986099243
+test_mae_target_0: 0.7312875986099243
+test_r2_mean: 0.31407690048217773
+test_r2_target_0: 0.31407690048217773
+test_rmse_mean: 0.9018082022666931
+test_rmse_target_0: 0.9018082022666931

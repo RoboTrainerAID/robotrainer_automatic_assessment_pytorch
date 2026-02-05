@@ -1,0 +1,3 @@
+aggregation: attention
+lr: 0.0011089375900352413
+weight_decay: 0.0016243097256706312

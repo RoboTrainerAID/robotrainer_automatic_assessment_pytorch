@@ -1,0 +1,44 @@
+experiment_info:
+  start_time: '2026-02-04 18:01:21'
+  duration: '1:10:23'
+  input_shapes:
+    shape_X_ts:
+    - 112
+    - 20
+    - 39
+    - 158
+    shape_X_path:
+    - 112
+    - 20
+    - 107
+    shape_X_user:
+    - 112
+    - 2
+    shape_y:
+    - 112
+    - 1
+  total_model_parameters: 4629
+pipeline_config:
+  epochs: 50
+  hyperparameter_mode: optimize_once
+  only_first_fold: false
+  n_trials: 50
+  use_lasso: false
+  max_n_features: 20
+  targets:
+  - Throwing Beanbag at Target
+  augmentation_ratio: 3
+  note: Multitarget to all single target comparison
+hyperparameters_fold_0:
+  lr: 9.778059902488535e-05
+  weight_decay: 0.0012662851443314006
+  lstm_hidden_dim: 8
+  lstm_layers: 2
+  bidirectional: false
+  dropout_lstm: 0.17295739038207808
+  path_dim: 8
+  dropout_path: 0.21582122221409644
+  regressor_dim: 128
+  dropout_reg: 0.33001653173488826
+  path_aggregation: static
+  batch_size: 16

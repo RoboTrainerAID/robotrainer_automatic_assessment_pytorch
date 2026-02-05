@@ -1,0 +1,6 @@
+aggregation: mean
+depth: 2
+dropout: 0.3
+hidden_dim: 64
+lr: 0.001
+weight_decay: 0.0001

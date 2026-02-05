@@ -1,0 +1,6 @@
+aggregation: attention
+depth: 2
+dropout: 0.21097237234924168
+hidden_dim: 64
+lr: 0.0008880821191602028
+weight_decay: 2.2744307909925632e-05

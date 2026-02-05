@@ -1,0 +1,10 @@
+parameter,importance
+lr,0.5816564086624992
+regressor_dim,0.245235853491184
+path_dim,0.09059389957411244
+weight_decay,0.06313288346009147
+dropout,0.019380954812112914
+ts_out_channels,0.0
+path_attention_type,0.0
+num_conv_layers,0.0
+batch_size,0.0

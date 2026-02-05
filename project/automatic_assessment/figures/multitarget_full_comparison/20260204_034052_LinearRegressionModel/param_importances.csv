@@ -1,0 +1,4 @@
+parameter,importance
+lr,0.9162085069143834
+weight_decay,0.06558629683011637
+aggregation,0.018205196255500326

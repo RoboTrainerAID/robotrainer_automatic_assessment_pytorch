@@ -1,0 +1,44 @@
+experiment_info:
+  start_time: '2026-02-02 23:29:22'
+  duration: '1:00:25'
+  input_shapes:
+    shape_X_ts:
+    - 112
+    - 20
+    - 39
+    - 158
+    shape_X_path:
+    - 112
+    - 20
+    - 103
+    shape_X_user:
+    - 112
+    - 2
+    shape_y:
+    - 112
+    - 1
+  total_model_parameters: 22549
+pipeline_config:
+  epochs: 50
+  hyperparameter_mode: optimize_once
+  only_first_fold: false
+  n_trials: 50
+  use_lasso: false
+  max_n_features: 20
+  targets:
+  - Robotrainer Front
+  augmentation_ratio: 3
+  note: Multitarget to all single target comparison
+hyperparameters_fold_0:
+  lr: 0.00044175099368831737
+  weight_decay: 0.0009464192410350149
+  lstm_hidden_dim: 32
+  lstm_layers: 2
+  bidirectional: false
+  dropout_lstm: 0.2020503290714682
+  path_dim: 16
+  dropout_path: 0.3836147620620532
+  regressor_dim: 128
+  dropout_reg: 0.300047299720349
+  path_aggregation: static
+  batch_size: 16

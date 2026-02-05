@@ -1,0 +1,38 @@
+experiment_info:
+  start_time: '2026-02-02 17:49:21'
+  duration: 0:35:36
+  input_shapes:
+    shape_X_ts:
+    - 112
+    - 20
+    - 40
+    - 158
+    shape_X_path:
+    - 112
+    - 20
+    - 106
+    shape_X_user:
+    - 112
+    - 2
+    shape_y:
+    - 112
+    - 1
+  total_model_parameters: 30700
+pipeline_config:
+  epochs: 50
+  hyperparameter_mode: optimize_once
+  only_first_fold: false
+  n_trials: 50
+  use_lasso: false
+  max_n_features: 20
+  targets:
+  - Balance Test
+  augmentation_ratio: 3
+  note: Multitarget to all single target comparison
+hyperparameters_fold_0:
+  aggregation: attention
+  hidden_dim: 128
+  depth: 2
+  dropout: 0.18355248911027328
+  lr: 0.003541062590042896
+  weight_decay: 0.00021287759957565658

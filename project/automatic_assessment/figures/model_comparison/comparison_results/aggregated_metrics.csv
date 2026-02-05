@@ -1,0 +1,25 @@
+Folder,Model Class,Target,Config Type,RMSE,R2,Baseline RMSE
+20260129_110115_HierarchicalTimeseriesGemini21,HierarchicalTimeseriesGemini21,Balance Test,Reduced (4 Targets),1.2115291357040405,-0.011081695556640625,
+20260129_110115_HierarchicalTimeseriesGemini21,HierarchicalTimeseriesGemini21,Single Leg Stance,Reduced (4 Targets),1.059340000152588,0.16909247636795044,
+20260129_110115_HierarchicalTimeseriesGemini21,HierarchicalTimeseriesGemini21,Hand Grip Right,Reduced (4 Targets),0.7443625926971436,0.5040174722671509,
+20260129_110115_HierarchicalTimeseriesGemini21,HierarchicalTimeseriesGemini21,Throwing Beanbag at Target,Reduced (4 Targets),1.1040359735488892,-0.039182066917419434,
+20260129_135614_HierarchicalTimeseriesLSTM,HierarchicalTimeseriesLSTM,Balance Test,Reduced (4 Targets),1.1848077774047852,0.033027052879333496,
+20260129_135614_HierarchicalTimeseriesLSTM,HierarchicalTimeseriesLSTM,Single Leg Stance,Reduced (4 Targets),1.0635042190551758,0.16254723072052002,
+20260129_135614_HierarchicalTimeseriesLSTM,HierarchicalTimeseriesLSTM,Hand Grip Right,Reduced (4 Targets),0.7140639424324036,0.5435728430747986,
+20260129_135614_HierarchicalTimeseriesLSTM,HierarchicalTimeseriesLSTM,Throwing Beanbag at Target,Reduced (4 Targets),1.1070833206176758,-0.04492652416229248,
+20260130_133948_ElasticNetModel,ElasticNetModel,Balance Test,Reduced (4 Targets),1.005581259727478,0.30344903469085693,1.2055913209915161
+20260130_133948_ElasticNetModel,ElasticNetModel,Single Leg Stance,Reduced (4 Targets),1.172133207321167,-0.017269015312194824,1.1630080938339233
+20260130_133948_ElasticNetModel,ElasticNetModel,Hand Grip Right,Reduced (4 Targets),0.8575295209884644,0.3417430520057678,1.0569448471069336
+20260130_133948_ElasticNetModel,ElasticNetModel,Throwing Beanbag at Target,Reduced (4 Targets),1.1356486082077026,-0.09954512119293213,1.0832287073135376
+20260130_135348_LinearRegressionModel,LinearRegressionModel,Balance Test,Reduced (4 Targets),1.0331571102142334,0.2647225260734558,1.2055913209915161
+20260130_135348_LinearRegressionModel,LinearRegressionModel,Single Leg Stance,Reduced (4 Targets),1.2270841598510742,-0.11488628387451172,1.1630080938339233
+20260130_135348_LinearRegressionModel,LinearRegressionModel,Hand Grip Right,Reduced (4 Targets),0.9180731773376465,0.24551290273666382,1.0569448471069336
+20260130_135348_LinearRegressionModel,LinearRegressionModel,Throwing Beanbag at Target,Reduced (4 Targets),1.1704258918762207,-0.16791951656341553,1.0832287073135376
+20260130_140807_RandomForestLikeMLP,RandomForestLikeMLP,Balance Test,Reduced (4 Targets),1.0091257095336914,0.29853004217147827,1.2055913209915161
+20260130_140807_RandomForestLikeMLP,RandomForestLikeMLP,Single Leg Stance,Reduced (4 Targets),1.1974949836730957,-0.06176722049713135,1.1630080938339233
+20260130_140807_RandomForestLikeMLP,RandomForestLikeMLP,Hand Grip Right,Reduced (4 Targets),0.9086164832115173,0.2609761953353882,1.0569448471069336
+20260130_140807_RandomForestLikeMLP,RandomForestLikeMLP,Throwing Beanbag at Target,Reduced (4 Targets),1.1609854698181152,-0.1491553783416748,1.0832287073135376
+20260130_142302_SimpleMLPRegressor,SimpleMLPRegressor,Balance Test,Reduced (4 Targets),1.0322543382644653,0.26600682735443115,1.2055913209915161
+20260130_142302_SimpleMLPRegressor,SimpleMLPRegressor,Single Leg Stance,Reduced (4 Targets),1.1560438871383667,0.010466516017913818,1.1630080938339233
+20260130_142302_SimpleMLPRegressor,SimpleMLPRegressor,Hand Grip Right,Reduced (4 Targets),0.9068203568458557,0.26389503479003906,1.0569448471069336
+20260130_142302_SimpleMLPRegressor,SimpleMLPRegressor,Throwing Beanbag at Target,Reduced (4 Targets),1.0842033624649048,-0.0021818876266479492,1.0832287073135376

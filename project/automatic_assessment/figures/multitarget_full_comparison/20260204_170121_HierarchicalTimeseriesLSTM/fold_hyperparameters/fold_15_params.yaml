@@ -1,0 +1,12 @@
+batch_size: 16
+bidirectional: false
+dropout_lstm: 0.17295739038207808
+dropout_path: 0.21582122221409644
+dropout_reg: 0.33001653173488826
+lr: 9.778059902488535e-05
+lstm_hidden_dim: 8
+lstm_layers: 2
+path_aggregation: static
+path_dim: 8
+regressor_dim: 128
+weight_decay: 0.0012662851443314006

@@ -92,8 +92,9 @@ def analyze_dataset_summary(df: pd.DataFrame) -> None:
     # Assuming 'path' column exists based on requirement, otherwise infer 1 path
     path_col = "path" if "path" in df.columns else None
     
-    total_duration_seconds = 0.0
-    
+    # Store time series for easy access
+    time_data = df["time"]
+
     if path_col:
         num_paths = df[path_col].nunique()
         print(f"Number of paths: {num_paths}")
@@ -107,8 +108,6 @@ def analyze_dataset_summary(df: pd.DataFrame) -> None:
         print("\nDuration of each path (sorted min to max):")
         print(sorted_durations)
         
-        # Sum total duration for frequency calc
-        total_dur_val = durations.sum()
     else:
         print("Number of paths: 1 (inferred)")
         min_t = df["time"].min()
@@ -116,38 +115,62 @@ def analyze_dataset_summary(df: pd.DataFrame) -> None:
         total_dur_val = max_t - min_t
         print(f"Duration: {total_dur_val}")
     
-    # Convert duration to seconds float
-    if hasattr(total_dur_val, 'total_seconds'):
-        total_duration_seconds = total_dur_val.total_seconds()
-    else:
-        total_duration_seconds = float(total_dur_val)
-
     # 3. Full list of columns with stats
     print("\nColumn Statistics:")
     print(f"{'Column Name':<30} | {'Freq (Hz)':<10} | {'Points':<8} | {'Min':<12} | {'Max':<12} | {'Mean':<12}")
     print("-" * 95)
     
     for col in df.columns:
-        count = df[col].count()
-        freq = 0.0
-        if total_duration_seconds > 0:
-            freq = count / total_duration_seconds
-            
-        try:
-            min_val = df[col].min()
-            max_val = df[col].max()
-            
-            mean_str = "N/A"
-            min_str = str(min_val)
-            max_str = str(max_val)
+        # Determine valid data: No NaNs, and for numeric columns (except time) No 0s
+        # This prevents leading/trailing zeros from artificially extending duration or count
+        is_numeric = pd.api.types.is_numeric_dtype(df[col])
+        
+        if is_numeric and col != "time":
+            mask = (df[col].notna()) & (df[col] != 0)
+        else:
+            mask = df[col].notna()
 
-            if pd.api.types.is_numeric_dtype(df[col]):
-                mean_val = df[col].mean()
-                mean_str = f"{mean_val:.4g}"
-                if isinstance(min_val, (int, float)):
+        # Extract valid data 
+        valid_data = df.loc[mask, col]
+        
+        count = len(valid_data)
+        freq = 0.0
+        
+        # Calculate duration based on the timestamps of first and last valid data points
+        if count > 1:
+            # Get the index of the first and last valid measurement
+            first_idx = valid_data.index[0]
+            last_idx = valid_data.index[-1]
+            
+            t_start = df.loc[first_idx, "time"]
+            t_end = df.loc[last_idx, "time"]
+            
+            col_duration = t_end - t_start
+            
+            # Convert duration to seconds float
+            if hasattr(col_duration, 'total_seconds'):
+                dur_seconds = col_duration.total_seconds()
+            else:
+                dur_seconds = float(col_duration)
+            
+            if dur_seconds > 0:
+                freq = count / dur_seconds
+        
+        try:
+            min_str, max_str, mean_str = "N/A", "N/A", "N/A"
+            
+            if not valid_data.empty:
+                min_val = valid_data.min()
+                max_val = valid_data.max()
+                
+                if is_numeric:
+                    mean_val = valid_data.mean()
+                    mean_str = f"{mean_val:.4g}"
                     min_str = f"{min_val:.4g}"
-                if isinstance(max_val, (int, float)):
                     max_str = f"{max_val:.4g}"
+                else:
+                    min_str = str(min_val)
+                    max_str = str(max_val)
             
             # Truncate strings if too long
             if len(min_str) > 12: min_str = min_str[:10] + ".."
@@ -617,15 +640,16 @@ if __name__ == "__main__":
     # Assuming scenarios are stored here; adjust as needed for environment
     scenario_folder = "/data/raw/scenarios" 
 
-    extract_user_dataset(path_to_csv, output_single_user_csv, user_id=12)
+    # extract_user_dataset(path_to_csv, output_single_user_csv, user_id=12)
     print(f"Loading user dataset: {output_single_user_csv}")
     user_1_df = load_dataset(output_single_user_csv)
     
     # Filter for path = 10 to isolate one timeline
     path_id_to_filter = 14
     user_1_df = user_1_df[user_1_df["path"] == path_id_to_filter]
+    # save_dataset(user_1_df, f"/data/user_1_path_{path_id_to_filter}.csv")
         
-    # analyze_dataset_summary(user_1_df)
+    analyze_dataset_summary(user_1_df)
 
     # plot_histogram(user_1_df, "robot_pose_y")
     # plot_robot_path(user_1_df)

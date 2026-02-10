@@ -12,15 +12,17 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 
 import numpy as np
+import pandas as pd
 
 
 @dataclass
 class PathData:
     """All loaded (and preprocessed) timeseries for a single path."""
-    user_id: str
-    path_id: str
+    user_id: int
+    path_id: int
     meta: dict = field(default_factory=dict)
     timeseries: Dict[str, np.ndarray] = field(default_factory=dict)
+    scalar_features: Dict[str, float] = field(default_factory=dict)
     motion_start_timestamp: Optional[float] = None
 
 
@@ -34,12 +36,14 @@ class TimeseriesLoader:
         :param config: A module or object containing configuration variables:
                        DATASET_ROOT, TIMESERIES_TO_LOAD, TIMESERIES_TRIMMED_BY_MOTION_START,
                        PATHS_WITHOUT_DISTURBANCE, MOTION_START_THRESHOLD,
-                       TIMESERIES_ZERO_IS_INVALID, COL_RAW_TS, COL_VALUE
+                       TIMESERIES_ZERO_IS_INVALID, COL_RAW_TS, COL_VALUE,
+                       DATA_WITH_A_SINGLE_VALUE_PER_PATH, CSV_OUTPUT_PATH
         """
         self.cfg = config
-        self.data: Dict[str, Dict[str, PathData]] = {}
+        self.data: Dict[int, Dict[int, PathData]] = {}
         # Stores validation issues: user_id -> list of issue messages
-        self.validation_report: Dict[str, List[str]] = {}
+        self.validation_report: Dict[int, List[str]] = {}
+        self.features: Optional[pd.DataFrame] = None
 
     def load_all(self) -> None:
         """Discover and load all users and paths."""
@@ -51,7 +55,12 @@ class TimeseriesLoader:
         user_dirs = sorted([d for d in root.iterdir() if d.is_dir() and d.name.startswith("U")])
         
         for user_dir in user_dirs:
-            user_id = user_dir.name
+            try:
+                user_id = int(user_dir.name[1:])
+            except ValueError:
+                print(f"Skipping invalid user directory: {user_dir.name}")
+                continue
+                
             self.data[user_id] = {}
             
             # Sort paths numerically (path_1, path_2, ...)
@@ -61,12 +70,16 @@ class TimeseriesLoader:
             )
 
             for path_dir in path_dirs:
-                path_id = path_dir.name
+                try:
+                    path_id = int(path_dir.name.split("_")[1])
+                except (IndexError, ValueError):
+                    continue
+
                 pd = self._load_path(user_id, path_id, path_dir)
                 if pd:
                     self.data[user_id][path_id] = pd
             
-            print(f"Loaded {user_id}: {len(self.data[user_id])} paths")
+            print(f"Loaded User {user_id}: {len(self.data[user_id])} paths")
             
         self._print_validation_report()
 
@@ -96,7 +109,7 @@ class TimeseriesLoader:
             all_paths.extend(user_data.values())
         return all_paths
 
-    def _load_path(self, user_id: str, path_id: str, path_dir: Path) -> Optional[PathData]:
+    def _load_path(self, user_id: int, path_id: int, path_dir: Path) -> Optional[PathData]:
         pd = PathData(user_id=user_id, path_id=path_id)
         
         # Load Meta
@@ -105,11 +118,27 @@ class TimeseriesLoader:
             with open(meta_path, 'r') as f:
                 pd.meta = json.load(f)
 
+        # 1. Load Single Value Features
+        for name in self.cfg.DATA_WITH_A_SINGLE_VALUE_PER_PATH:
+            fpath = path_dir / f"{name}.npy"
+            if fpath.exists():
+                try:
+                    # Load as array first, validate later
+                    arr = np.load(str(fpath))
+                    
+                    # If this file has timestamps (columns), extract only the value column.
+                    # This prevents counting timestamps as values during validation.
+                    if arr.ndim == 2 and arr.shape[1] > self.cfg.COL_VALUE:
+                         arr = arr[:, self.cfg.COL_VALUE]
+
+                    pd.scalar_features[name] = arr
+                except Exception as e:
+                    print(f"Error loading scalar {fpath}: {e}")
+
         # Determine expected timeseries
-        path_num = int(path_id.split("_")[1]) if "_" in path_id else 0
         expected_ts = self.cfg.TIMESERIES_TO_LOAD.copy()
         
-        if path_num in self.cfg.PATHS_WITHOUT_DISTURBANCE:
+        if path_id in self.cfg.PATHS_WITHOUT_DISTURBANCE:
             expected_ts = [ts for ts in expected_ts if not ts.startswith("disturbance_force")]
 
         # Load .npy files
@@ -126,6 +155,10 @@ class TimeseriesLoader:
             except Exception as e:
                 print(f"Error loading {fpath}: {e}")
 
+        # Preprocess special cases explicitly requested (HRV, PPG)
+        self._preprocess_hrv(pd)
+        self._preprocess_ppg(pd)
+
         # 1. Trim to motion start
         self._trim_path_data(pd)
         
@@ -137,6 +170,47 @@ class TimeseriesLoader:
         
         # Always return the path object, even if partially empty
         return pd
+
+    def _preprocess_hrv(self, pd: PathData) -> None:
+        """
+        Keep only the first value column for HRV timeseries.
+        HRV has data columns at indices 2 and 3; we keep 2 (plus timestamps 0, 1).
+        """
+        if "hrv" in pd.timeseries:
+            arr = pd.timeseries["hrv"]
+            # If there are more than 3 columns (ts_raw, ts_sync, val1), trim the rest.
+            if arr.shape[1] > 3:
+                pd.timeseries["hrv"] = arr[:, :3]
+
+    def _preprocess_ppg(self, pd: PathData) -> None:
+        """
+        Flatten PPG channels which contain multiple samples per row.
+        Each row has timestamps (cols 0,1) and multiple values (cols 2+).
+        """
+        target_ts = ["ppg_ch0", "ppg_ch1", "ppg_ch2", "ppg_ch3"]
+        for name in target_ts:
+            if name not in pd.timeseries:
+                continue
+            
+            arr = pd.timeseries[name]
+            n_cols = arr.shape[1]
+            # Expecting ts_raw, ts_sync, and at least one value
+            if n_cols <= 2:
+                continue
+            
+            # Extract timestamps and repeat them for each value column
+            timestamps = arr[:, :2]
+            n_vals = n_cols - 2
+            
+            # Repeat rows: [t0, t0, t0, t1, t1, t1...]
+            timestamps_expanded = np.repeat(timestamps, n_vals, axis=0)
+            
+            # Extract values and flatten row-wise: [v0_0, v0_1, v0_2, v1_0...]
+            values = arr[:, 2:]
+            values_flattened = values.reshape(-1, 1)
+            
+            # Stack to create (N*n_vals, 3) matrix
+            pd.timeseries[name] = np.hstack((timestamps_expanded, values_flattened))
 
     def _trim_path_data(self, pd: PathData):
         """Trim loaded timeseries based on robot_vel_x threshold."""
@@ -179,9 +253,32 @@ class TimeseriesLoader:
         # 1. Check for completely missing files
         missing_files = [ts for ts in expected_ts if ts not in pd.timeseries]
         if missing_files:
-            issues.append(f"Query {pd.path_id}: Missing files {missing_files}")
+            issues.append(f"Path {pd.path_id}: Missing files {missing_files}")
 
-        # 2. Check for empty arrays (e.g. after trim or zero-removal)
+        # 2. Check for invalid scalars (must have exactly 1 value)
+        invalid_scalars = []
+        empty_scalars = []
+        for name, val in pd.scalar_features.items():
+            if val.size > 1:
+                invalid_scalars.append(name)
+            elif val.size == 1:
+                # Convert to pure python float
+                pd.scalar_features[name] = float(val.item())
+            else:
+                # Empty (size 0), valid but unusable, remove silently
+                empty_scalars.append(name)
+        
+        for k in invalid_scalars:
+            # Instead of deleting, take the first value
+            first_val = float(pd.scalar_features[k].item(0))
+            pd.scalar_features[k] = first_val
+            issues.append(f"Path {pd.path_id}: Scalar feature '{k}' has invalid size > 1 (took first value)")
+
+        for k in empty_scalars:
+            del pd.scalar_features[k]
+            issues.append(f"Path {pd.path_id}: Scalar feature '{k}' is empty (removed)")
+
+        # 3. Check for arrays that are too short for stat processing (< 3)
         empty_keys = []
         for ts_name, arr in pd.timeseries.items():
             if len(arr) == 0:
@@ -189,7 +286,7 @@ class TimeseriesLoader:
         
         for k in empty_keys:
             del pd.timeseries[k]
-            issues.append(f"Query {pd.path_id}: Data for '{k}' is empty (removed)")
+            issues.append(f"Path {pd.path_id}: Timeseries '{k}' is empty (removed)")
             
         if issues:
             if pd.user_id not in self.validation_report:

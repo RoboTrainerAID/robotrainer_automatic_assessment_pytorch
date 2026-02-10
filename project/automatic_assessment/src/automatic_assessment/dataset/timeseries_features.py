@@ -3,58 +3,92 @@ Statistical feature extraction for timeseries data.
 """
 
 import numpy as np
+import pandas as pd
 from typing import Dict, List, Any, Callable
+from pathlib import Path
 
-def default_features() -> Dict[str, Callable[[np.ndarray], float]]:
-    """Returns a dictionary of default statistical functions."""
-    return {
-        "mean": np.mean,
-        "std": np.std,
-        "min": np.min,
-        "max": np.max,
-        "median": np.median,
-        "iqr": lambda v: np.percentile(v, 75) - np.percentile(v, 25),
-        "rms": lambda v: np.sqrt(np.mean(v ** 2)),
-        "peak_to_peak": lambda v: np.max(v) - np.min(v),
-    }
+# To support type hinting without circular imports at runtime if needed, 
+# but here we assume the Loader is available or we use Any.
+from automatic_assessment.dataset.timeseries_loader import PathData
 
-def extract_features(paths_data: List[Any], feature_fns: Dict[str, Callable] = None) -> List[Dict]:
+class TimeseriesFeatures:
     """
-    Apply statistical functions to the value column of each timeseries in each path.
-    :param paths_data: List of PathData objects
-    :param feature_fns: Dictionary of name -> function(array1d) -> float
-    :return: List of dictionaries (one per path) flattened for DataFrame creation
+    Handles feature extraction from loaded timeseries data.
     """
-    if feature_fns is None:
-        feature_fns = default_features()
-    
-    # Assume the config COL_VALUE is 2, or pass it? 
-    # Since I don't want to couple this tightly to the config module unless necessary,
-    # I'll default to 2 or check if the object has it. 
-    # But for simplicity, I'll assume standard processing index 2 (Value).
-    COL_VALUE = 2 
 
-    rows = []
-    for pd in paths_data:
-        row = {
-            "user_id": pd.user_id,
-            "path_id": pd.path_id,
+    def __init__(self, dataset: List[PathData]) -> None:
+        self.dataset = dataset
+        self.df = pd.DataFrame()
+        self.feature_fns = self._default_features()
+
+    @staticmethod
+    def _default_features() -> Dict[str, Callable[[np.ndarray], float]]:
+        """Returns a dictionary of default statistical functions."""
+        return {
+            "mean": np.mean,
+            "std": np.std,
+            "min": np.min,
+            "max": np.max,
+            "median": np.median,
+            "iqr": lambda v: np.percentile(v, 75) - np.percentile(v, 25),
+            "rms": lambda v: np.sqrt(np.mean(v ** 2)),
+            "peak_to_peak": lambda v: np.max(v) - np.min(v),
         }
-        
-        for ts_name, arr in pd.timeseries.items():
-            if arr.ndim < 2 or arr.shape[1] <= COL_VALUE:
-                continue
+
+    def extract_features(self) -> pd.DataFrame:
+        """
+        Generates a DataFrame with statistical features and scalar values.
+        Structure: user, path, source_timeseries, ...features...
+        """
+        # Assume standard processing index 2 (Value) for timeseries
+        COL_VALUE = 2 
+        rows = []
+
+        for pd_data in self.dataset:
+            # 1. Process standard Timeseries
+            for ts_name, arr in pd_data.timeseries.items():
+                if arr.ndim < 2 or arr.shape[1] <= COL_VALUE:
+                    continue
+                    
+                values = arr[:, COL_VALUE]
+                if len(values) == 0:
+                    continue
                 
-            values = arr[:, COL_VALUE]
-            if len(values) == 0:
-                continue
-            
-            for fname, func in feature_fns.items():
-                try:
-                    val = func(values)
-                    row[f"{ts_name}_{fname}"] = float(val)
-                except Exception:
-                    row[f"{ts_name}_{fname}"] = np.nan
-        
-        rows.append(row)
-    return rows
+                row = {
+                    "user_id": pd_data.user_id,
+                    "path_id": pd_data.path_id,
+                    "source_timeseries": ts_name,
+                }
+
+                for fname, func in self.feature_fns.items():
+                    try:
+                        row[fname] = float(func(values))
+                    except Exception:
+                        row[fname] = np.nan
+                
+                rows.append(row)
+
+            # 2. Process Scalar Features (load as 'value' or similar)
+            for s_name, s_val in pd_data.scalar_features.items():
+                row = {
+                    "user_id": pd_data.user_id,
+                    "path_id": pd_data.path_id,
+                    "source_timeseries": s_name,
+                    "value": s_val
+                    # Statistical columns will be NaN for these rows
+                }
+                rows.append(row)
+
+        self.df = pd.DataFrame(rows)
+        return self.df
+
+    def save_features_to_csv(self, output_path: Path) -> None:
+        """Saves the extracted features to a CSV file."""
+        if self.df.empty:
+            print("Warning: Feature DataFrame is empty. Nothing to save.")
+            return
+
+        # Ensure directory exists
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.df.to_csv(output_path, index=False)
+        print(f"Features saved to {output_path}")

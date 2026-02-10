@@ -5,7 +5,8 @@ Configuration settings for the dataset preprocessing.
 from pathlib import Path
 
 # Root folder of the numpy dataset. 
-DATASET_ROOT = Path("/data/timeseries_numpy").resolve()
+DATASET_ROOT = Path("/data/raw/timeseries_numpy").resolve()
+CSV_OUTPUT_PATH = Path("/data/raw/timeseries_features.csv").resolve()
 
 # Columns in .npy files
 COL_RAW_TS = 0
@@ -35,6 +36,20 @@ TIMESERIES_TO_LOAD = [
     "user_force_x",
     "user_force_y",
     "user_torque_z",
+    "left_stride_duration",
+    "left_stride_length",
+    "left_stride_stance_time",
+    "left_stride_swing_time",
+    "right_stride_duration",
+    "right_stride_length",
+    "right_stride_stance_time",
+    "right_stride_swing_time",
+]
+
+DATA_WITH_A_SINGLE_VALUE_PER_PATH = [
+    "cadence_avg",
+    "left_num_strides",
+    "right_num_strides",
 ]
 
 # Timeseries to trim based on motion start

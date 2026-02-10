@@ -120,3 +120,14 @@ Output data: single clinical scale / all multioutput clinical scales
     - Performance as parity plot
     - Prepare comparison of different models (although for now only one used) by iterating all the model folders and aggregating
     
+
+# How to start
+1. Dataset generation
+   1. Place all .bag files in one folder
+   2. with docker `robotrainer_docker_meldic/gait` branch gait follow README instructions there to generate gait.bag files
+   3. Place all gait.bag files in another folder
+   4. with docker `robotrainer_docker_meldic/bag_to_csv` branch `bag_to_csv` 
+      1. Check config.ini for correct folder paths and topics to filter out
+      2. run `bag_to_numpy_dataset.py` to generate the dataset as .npy files
+      3. Copy folder into this docker data folder
+   

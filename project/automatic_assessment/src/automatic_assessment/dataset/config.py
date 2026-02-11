@@ -22,10 +22,10 @@ TIMESERIES_TO_LOAD = [
     "path_deviation_front",
     "path_deviation_left",
     "path_deviation_right",
-    "ppg_ch0",
-    "ppg_ch1",
-    "ppg_ch2",
-    "ppg_ch3",
+    # "ppg_ch0",
+    # "ppg_ch1",
+    # "ppg_ch2",
+    # "ppg_ch3",
     "ppi",
     "robot_pos_theta",
     "robot_pos_x",
@@ -59,10 +59,10 @@ TIMESERIES_TRIMMED_BY_MOTION_START = [
     "path_deviation_front",
     "path_deviation_left",
     "path_deviation_right",
-    "ppg_ch0",
-    "ppg_ch1",
-    "ppg_ch2",
-    "ppg_ch3",
+    # "ppg_ch0",
+    # "ppg_ch1",
+    # "ppg_ch2",
+    # "ppg_ch3",
     "robot_pos_theta",
     "robot_pos_x",
     "robot_pos_y",
@@ -86,3 +86,82 @@ PATHS_WITHOUT_DISTURBANCE = [4, 11, 12, 13, 14]
 
 # Velocity threshold to detect motion start
 MOTION_START_THRESHOLD = 0.01
+
+# ============================================================
+# FEATURE EXTRACTION Core robust features (applied to most TS)
+# ============================================================
+
+CORE_FEATURES = [
+    "trimmed_mean",
+    "std",
+    "p95",
+    "p05",
+    "rms",
+]
+
+# ============================================================
+# Feature mapping per timeseries
+# ============================================================
+
+TS_FEATURES = {
+
+    # --- Force Magnitudes (derived) ---
+    "user_force_mag": CORE_FEATURES + [
+        "energy",
+        "rms_diff",
+        "impulse",
+        "band_power_voluntary",
+        "band_power_tremor",
+    ],
+
+    "disturbance_force_mag": CORE_FEATURES + [
+        "energy",
+        "impulse",
+    ],
+
+    # --- Velocity Magnitude (derived) ---
+    "robot_vel_mag": CORE_FEATURES + [
+        "rms_diff",
+        "band_power_voluntary",
+    ],
+
+    # --- Path Deviation ---
+    "path_deviation_front": CORE_FEATURES + [
+        "abs_mean",
+        "band_power_voluntary",
+    ],
+
+    # --- Physiology ---
+    "heart_rate": [
+        "trimmed_mean",
+        "std",
+        "p95",
+    ],
+
+    "ppi": [
+        "trimmed_mean",
+        "std",
+        "p95",
+    ],
+
+    # --- Stride parameters ---
+    "left_stride_duration": ["trimmed_mean", "std"],
+    "right_stride_duration": ["trimmed_mean", "std"],
+}
+
+# ============================================================
+# Correlation feature pairs
+# ============================================================
+
+CORRELATION_FEATURES = [
+    ("user_force_mag", "path_deviation_front"),
+    ("user_force_mag", "robot_vel_mag"),
+    ("disturbance_force_mag", "path_deviation_front"),
+]
+
+# ============================================================
+# Spectral band definitions
+# ============================================================
+
+VOLUNTARY_BAND = (0.1, 2.0)
+TREMOR_BAND = (3.0, 10.0)

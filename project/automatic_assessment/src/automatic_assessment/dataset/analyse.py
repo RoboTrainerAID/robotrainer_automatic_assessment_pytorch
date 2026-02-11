@@ -71,7 +71,7 @@ def analyze_dataset_summary(path_data: PathData) -> None:
                 duration = times[-1] - times[0]
                 if duration > 0:
                     freq = (arr.shape[0] - 1) / duration
-                    freq_str = f"{freq:.1f}"
+                    freq_str = f"{freq:.1f}" 
                 else:
                     freq_str = "inf"
             else:

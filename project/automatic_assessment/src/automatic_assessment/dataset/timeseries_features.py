@@ -48,6 +48,16 @@ class TimeseriesFeatures:
             "impulse": lambda v, t: float(
                 np.sum(np.abs(self._robust_clip(v[:-1])) * np.diff(t))
             ) if t is not None and len(t) > 1 else 0.0,
+            
+            # --- New Physical Integrals ---
+            "integral": lambda v, t: float(
+                np.sum(v[:-1] * np.diff(t))
+            ) if t is not None and len(t) > 1 else 0.0,
+
+            "abs_integral": lambda v, t: float(
+                np.sum(np.abs(v[:-1]) * np.diff(t))
+            ) if t is not None and len(t) > 1 else 0.0,
+            # ------------------------------
 
             "band_power_voluntary": lambda v, t=None: self._band_power(
                 v, t, config.VOLUNTARY_BAND
@@ -93,33 +103,91 @@ class TimeseriesFeatures:
     # Derived Timeseries
     # ============================================================
 
-    def _add_force_magnitudes(self, ts_dict):
+    def _add_force_magnitudes(self, ts_dict: Dict[str, np.ndarray]) -> None:
+        """
+        Derives physical quantities including equivalent magnitudes, Power, and Work.
+        Lever arm (r) = 0.35m.
+        """
+        r_handle = 0.35  # meters
+        
+        # Helper to get column vectors if they exist
+        def get_vec(name_x, name_y, name_z=None):
+            if name_x in ts_dict and name_y in ts_dict:
+                vx = ts_dict[name_x][:, config.COL_VALUE]
+                vy = ts_dict[name_y][:, config.COL_VALUE]
+                vz = ts_dict[name_z][:, config.COL_VALUE] if (name_z and name_z in ts_dict) else np.zeros_like(vx)
+                # Return time reference from x
+                return ts_dict[name_x][:, :2], vx, vy, vz
+            return None
 
-        if "user_force_x" in ts_dict and "user_force_y" in ts_dict:
-            fx = ts_dict["user_force_x"]
-            fy = ts_dict["user_force_y"]
+        # 1. Total User Effort (Force + Torque)
+        # F_equiv = sqrt(Fx^2 + Fy^2 + (Tz / r)^2)
+        user_f_data = get_vec("user_force_x", "user_force_y", "user_torque_z")
+        if user_f_data:
+            time_cols, fx, fy, tz = user_f_data
+            
+            # Linear Magnitude
+            lin_mag = np.sqrt(fx**2 + fy**2)
+            ts_dict["user_force_lin_mag"] = np.column_stack((time_cols, lin_mag))
+            
+            # Combined Equivalent Magnitude (at handle)
+            f_tan = tz / r_handle # Convert torque to tangential force
+            total_mag = np.sqrt(fx**2 + fy**2 + f_tan**2)
+            ts_dict["user_force_total_mag"] = np.column_stack((time_cols, total_mag))
 
-            mag = np.sqrt(fx[:, 2]**2 + fy[:, 2]**2)
-            ts_dict["user_force_mag"] = np.column_stack(
-                (fx[:, 0], fx[:, 1], mag)
-            )
+        # 2. Total Handle Velocity (Linear + Rotational)
+        # V_equiv = sqrt(Vx^2 + Vy^2 + (Wz * r)^2)
+        robot_v_data = get_vec("robot_vel_x", "robot_vel_y", "robot_vel_rot_z")
+        if robot_v_data:
+            time_cols, vx, vy, wz = robot_v_data
+            
+            # Linear Magnitude
+            lin_mag = np.sqrt(vx**2 + vy**2)
+            ts_dict["robot_vel_lin_mag"] = np.column_stack((time_cols, lin_mag))
+            
+            # Combined Equivalent Magnitude (velocity of handle)
+            v_tan = wz * r_handle
+            total_mag = np.sqrt(vx**2 + vy**2 + v_tan**2)
+            ts_dict["robot_vel_total_mag"] = np.column_stack((time_cols, total_mag))
 
+        # 3. User Power Interaction
+        # P = F.v + T.w
+        if user_f_data and robot_v_data:
+            # Align lengths if necessary (usually robust if loaded together)
+            n = min(len(user_f_data[1]), len(robot_v_data[1]))
+            
+            fx, fy, tz = user_f_data[1][:n], user_f_data[2][:n], user_f_data[3][:n]
+            vx, vy, wz = robot_v_data[1][:n], robot_v_data[2][:n], robot_v_data[3][:n]
+            time_cols = user_f_data[0][:n]
+
+            # Power calculation (Watts)
+            # Dot product of force and velocity vectors
+            p_trans = fx * vx + fy * vy
+            p_rot   = tz * wz
+            p_total = p_trans + p_rot
+
+            ts_dict["user_power"] = np.column_stack((time_cols, p_total))
+
+            # 4. Work (Accumulated Energy)
+            # We calculate this as a timeseries of cumulative sum for visualization,
+            # but the 'integral' feature in feature_fns will calculate single-value Total Work later.
+            # Work = Integral(P dt)
+            if n > 1:
+                times = time_cols[:, 0] # Use Raw timestamps for diff
+                dt = np.diff(times)
+                # Compute work increments (Joules)
+                dW = p_total[:-1] * dt
+                # Prepend 0 for initial state
+                work_cum = np.pad(np.cumsum(dW), (1, 0), 'constant')
+                ts_dict["user_work_cum"] = np.column_stack((time_cols, work_cum))
+
+        # Disturbance Magnitude (Linear only usually)
         if "disturbance_force_x" in ts_dict and "disturbance_force_y" in ts_dict:
             fx = ts_dict["disturbance_force_x"]
             fy = ts_dict["disturbance_force_y"]
-
-            mag = np.sqrt(fx[:, 2]**2 + fy[:, 2]**2)
+            mag = np.sqrt(fx[:, config.COL_VALUE]**2 + fy[:, config.COL_VALUE]**2)
             ts_dict["disturbance_force_mag"] = np.column_stack(
-                (fx[:, 0], fx[:, 1], mag)
-            )
-
-        if "robot_vel_x" in ts_dict and "robot_vel_y" in ts_dict:
-            vx = ts_dict["robot_vel_x"]
-            vy = ts_dict["robot_vel_y"]
-
-            mag = np.sqrt(vx[:, 2]**2 + vy[:, 2]**2)
-            ts_dict["robot_vel_mag"] = np.column_stack(
-                (vx[:, 0], vx[:, 1], mag)
+                (fx[:, :2], mag)
             )
 
     # ============================================================
@@ -184,7 +252,7 @@ class TimeseriesFeatures:
 
                 ts_dict = dict(pd_data.timeseries)
 
-                # Add derived magnitudes
+                # Add derived magnitudes and physical quantities
                 self._add_force_magnitudes(ts_dict)
 
                 # ---- Per timeseries features ----

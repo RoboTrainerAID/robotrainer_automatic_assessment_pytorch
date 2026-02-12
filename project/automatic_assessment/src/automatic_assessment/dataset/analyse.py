@@ -7,7 +7,7 @@ import math
 import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict
 
 from automatic_assessment.dataset.timeseries_loader import TimeseriesLoader, PathData
 import automatic_assessment.dataset.config as config
@@ -222,11 +222,12 @@ def load_scenario_by_path_number(path_number: int, folder_path: str) -> dict:
 def parse_scenario(scenario_dict: dict) -> dict:
     """
     Parses a loaded scenario dictionary into a structured format for plotting.
-    Extracts path points and forces (scaled to Newtons and Meters).
+    Extracts path points, forces (scaled to Newtons and Meters), and areas.
     """
     parsed = {
         'path_points': [],
-        'forces': []
+        'forces': [],
+        'areas': []
     }
 
     # 1. Parse Path Points
@@ -284,14 +285,48 @@ def parse_scenario(scenario_dict: dict) -> dict:
             'strength': strength
         })
 
+    # 3. Parse Areas (Regions without force vectors, e.g., inverted rotation)
+    area_section = scenario_dict.get('area', {})
+    if area_section:
+        config_area = area_section.get('config', {})
+        area_names = config_area.get('area_names', [])
+        data_section = area_section.get('data', {})
+
+        for aname in area_names:
+            if aname not in data_section:
+                continue
+            
+            adata = data_section[aname]
+            center_info = adata.get('area', {})
+            margin_info = adata.get('margin', {})
+            funcs = adata.get('area_functions', [])
+            
+            cx = center_info.get('x', 0.0)
+            cy = center_info.get('y', 0.0)
+            
+            mx = margin_info.get('x', 0.0)
+            my = margin_info.get('y', 0.0)
+            
+            radius = math.sqrt((cx - mx)**2 + (cy - my)**2)
+            
+            label = ", ".join(funcs) if funcs else aname
+
+            parsed['areas'].append({
+                'name': aname,
+                'center': (cx, cy),
+                'radius': radius,
+                'label': label
+            })
+
     return parsed
 
 
-def find_scenario_pois(parsed_scenario: dict, path_data: PathData) -> list:
+def find_scenario_pois(parsed_scenario: dict, path_data: PathData) -> Dict[str, List[tuple]]:
     """
-    Finds points of interest where the robot enters or leaves force areas.
+    Finds points of interest where the robot enters or leaves force or effect areas.
+    Returns a dictionary with keys 'forces' and 'areas' containing list of (x,y) tuples.
     """
-    pois = []
+    pois = {'forces': [], 'areas': []}
     
     # Load required timeseries
     df = get_timeseries_as_df(path_data, ["robot_pos_x", "robot_pos_y"])
@@ -303,26 +338,32 @@ def find_scenario_pois(parsed_scenario: dict, path_data: PathData) -> list:
     path_x = df["robot_pos_x"].values
     path_y = df["robot_pos_y"].values
     
-    # Iterate through each force to check for boundary crossings
-    for force in parsed_scenario.get('forces', []):
-        cx, cy = force['center']
-        r = force['radius']
-        
-        # Calculate distance squared from center for all points
-        dist_sq = (path_x - cx)**2 + (path_y - cy)**2
-        r_sq = r**2
-        
-        # Boolean array: True if inside, False if outside
-        inside = dist_sq < r_sq
-        
-        # Find transitions: where value changes from previous
-        if len(inside) > 1:
-            # XOR with shifted version to find indices where status changes
-            transitions = np.where(inside[:-1] != inside[1:])[0]
+    # Helper to find crossings
+    def _get_crossings(regions):
+        crossings = []
+        for region in regions:
+            cx, cy = region['center']
+            r = region['radius']
             
-            for idx in transitions:
-                # idx is the point before change, take idx + 1 as the crossing point
-                pois.append((path_x[idx + 1], path_y[idx + 1]))
+            # Calculate distance squared from center for all points
+            dist_sq = (path_x - cx)**2 + (path_y - cy)**2
+            r_sq = r**2
+            
+            # Boolean array: True if inside, False if outside
+            inside = dist_sq < r_sq
+            
+            # Find transitions: where value changes from previous
+            if len(inside) > 1:
+                # XOR with shifted version to find indices where status changes
+                transitions = np.where(inside[:-1] != inside[1:])[0]
+                
+                for idx in transitions:
+                    # idx is the point before change, take idx + 1 as the crossing point
+                    crossings.append((path_x[idx + 1], path_y[idx + 1]))
+        return crossings
+
+    pois['forces'] = _get_crossings(parsed_scenario.get('forces', []))
+    pois['areas'] = _get_crossings(parsed_scenario.get('areas', []))
             
     return pois
 
@@ -369,9 +410,9 @@ def find_sensor_pois(path_data: PathData, sensor_col: str) -> list:
 
 def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None, 
                              sensor_col: str = None, 
-                             scenario_pois: list = None, sensor_pois: list = None) -> None:
+                             scenario_pois: Dict[str, List[tuple]] = None, sensor_pois: list = None) -> None:
     """
-    Plots the scenario path and forces, and overlays the robot path if provided.
+    Plots the scenario path, forces, areas, and overlays the robot path if provided.
     Can also overlay points of interest.
     """
     try:
@@ -385,7 +426,9 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
             plt.plot(xs, ys, color='black', linewidth=2, label='Scenario Path')
 
         # Plot Forces
+        has_forces = False
         for force in parsed_scenario.get('forces', []):
+            has_forces = True
             cx, cy = force['center']
             radius = force['radius']
             vx, vy = force['vector']
@@ -403,6 +446,21 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
             label_y = cy + vy
             plt.text(label_x - 0.7, label_y, f"{strength:.0f} N", color='red', fontsize=10, fontweight='bold')
 
+        # Plot Areas
+        has_areas = False
+        for area in parsed_scenario.get('areas', []):
+            has_areas = True
+            cx, cy = area['center']
+            radius = area['radius']
+            label = area['label']
+            
+            # Area Circle (Orange dashed/dot)
+            circle = plt.Circle((cx, cy), radius, color='orange', fill=False, linestyle='-.', linewidth=1.5)
+            ax.add_patch(circle)
+            
+            # Label (Function name)
+            plt.text(cx, cy + radius - 0.4, label, color='orange', fontsize=9, fontweight='bold', ha='center')
+
         # Overlay Robot Path
         if path_data:
             
@@ -417,65 +475,73 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
                 x_vals = plot_df["robot_pos_x"].values
                 y_vals = plot_df["robot_pos_y"].values
                 
-                # Mark Start and End points with distinct symbols and text
-                # Start: Black dot, text under
+                # Mark Start and End points
                 plt.scatter(x_vals[0], y_vals[0], c='black', marker='o', s=60, zorder=5)
-                plt.text(x_vals[0], y_vals[0] - 0.4, "Start", fontsize=10, color='black', fontweight='bold', zorder=5, ha='center', va='top')
+                plt.text(x_vals[0], y_vals[0] - 0.2, "Start", fontsize=10, color='black', fontweight='bold', zorder=5, ha='center', va='top')
                 
-                # End: Black dot (was Red X), text under
                 plt.scatter(x_vals[-1], y_vals[-1], c='black', marker='o', s=60, zorder=5)
-                plt.text(x_vals[-1], y_vals[-1] - 0.4, "End", fontsize=10, color='black', fontweight='bold', zorder=5, ha='center', va='top')
+                plt.text(x_vals[-1], y_vals[-1] - 0.2, "End", fontsize=10, color='black', fontweight='bold', zorder=5, ha='center', va='top')
 
                 if sensor_col and sensor_col in plot_df.columns:
-                    # Use LineCollection for a continuous, non-obstructing gradient line
                     sensor_vals = plot_df[sensor_col].values
-                    
-                    # Create segments (x, y) -> (next_x, next_y)
                     points = np.array([x_vals, y_vals]).T.reshape(-1, 1, 2)
                     segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
-                    # Create and add collection
                     norm = plt.Normalize(sensor_vals.min(), sensor_vals.max())
                     lc = LineCollection(segments, cmap='viridis', norm=norm, zorder=4)
-                    
-                    # Set array correlates color to the value at the starting point of the segment
                     lc.set_array(sensor_vals[:-1])
                     lc.set_linewidth(10)
                     line = ax.add_collection(lc)
-                    
-                    # Add colorbar for the gradient legend
                     cbar = plt.colorbar(line, ax=ax, label=sensor_col)
-                    
                 else:
-                    # Fallback to single color line
-                    plt.plot(x_vals, y_vals, 
-                             color='blue', linestyle='-', alpha=0.6, linewidth=5, label='Robot Path')
-                    if sensor_col:
-                        print(f"Warning: Sensor column '{sensor_col}' not found in data.")
+                    plt.plot(x_vals, y_vals, color='blue', linestyle='-', alpha=0.6, linewidth=5)
             else:
                 print("Warning: No valid pose data available for overlay.")
 
-        # Plot Scenario POIs
+        # Plot Scenario POIs (Events)
         if scenario_pois:
-            sx, sy = zip(*scenario_pois)
-            plt.scatter(sx, sy, c='red', marker='x', s=100, linewidths=2.5, zorder=10, label='Scenario Event')
+            force_pts = scenario_pois.get('forces', [])
+            area_pts = scenario_pois.get('areas', [])
+            
+            if force_pts:
+                fx, fy = zip(*force_pts)
+                # force is also applied in an area, so also call it here "Area Event" for simplicity
+                plt.scatter(fx, fy, c='red', marker='x', s=100, linewidths=2.5, zorder=10, label='Area Event')
+            
+            if area_pts:
+                ax_pts, ay_pts = zip(*area_pts)
+                plt.scatter(ax_pts, ay_pts, c='orange', marker='x', s=100, linewidths=2.5, zorder=10, label='Area Event')
 
         # Plot Sensor POIs
         if sensor_pois:
             sens_x, sens_y = zip(*sensor_pois)
-            # Circles around the plotted sensor path
             plt.scatter(sens_x, sens_y, facecolors='none', edgecolors='magenta', s=300, linewidths=2.5, zorder=10, label='Sensor Event')
                 
-        # Constuct Custom Legend
+        # Construct Custom Legend Only for appearing elements
         legend_elements = [
-            Line2D([0], [0], color='black', lw=2, label='Scenario Path'),
-            Line2D([0], [0], color='red', linestyle='--', lw=1.5, label='Force Area'),
-            Line2D([0], [0], color='teal' if sensor_col else 'blue', lw=3, label='Robot Path'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='black', markersize=8, label='Start, End'),
+            Line2D([0], [0], color='black', lw=2, label='Scenario Path')
         ]
         
+        if has_forces:
+             legend_elements.append(Line2D([0], [0], color='red', linestyle='--', lw=1.5, label='Force Area'))
+        
+        if has_areas:
+             legend_elements.append(Line2D([0], [0], color='orange', linestyle='-.', lw=1.5, label='Effect Area'))
+             
+        legend_elements.extend([
+            Line2D([0], [0], color='teal' if sensor_col else 'blue', lw=3, label='Robot Path'),
+            Line2D([0], [0], marker='o', color='w', markerfacecolor='black', markersize=8, label='Start, End')
+        ])
+        
         if scenario_pois:
-            legend_elements.append(Line2D([0], [0], marker='x', color='w', markeredgecolor='red', markersize=10, markeredgewidth=2, label='Scenario Event'))
+             if isinstance(scenario_pois, dict):
+                 if scenario_pois.get('forces'):
+                     legend_elements.append(Line2D([0], [0], marker='x', color='w', markeredgecolor='red', markersize=10, markeredgewidth=2, label='Area Event'))
+                 if scenario_pois.get('areas'):
+                     legend_elements.append(Line2D([0], [0], marker='x', color='w', markeredgecolor='orange', markersize=10, markeredgewidth=2, label='Area Event'))
+             else:
+                 legend_elements.append(Line2D([0], [0], marker='x', color='w', markeredgecolor='red', markersize=10, markeredgewidth=2, label='Scenario Event'))
+                 
         if sensor_pois:
             legend_elements.append(Line2D([0], [0], marker='o', color='w', markeredgecolor='magenta', markerfacecolor='none', markersize=10, markeredgewidth=2, label='Sensor Event'))
 
@@ -502,6 +568,8 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
 
     except Exception as e:
         print(f"Error plotting scenario: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == "__main__":
@@ -514,7 +582,7 @@ if __name__ == "__main__":
     
     # 2. Select User and Path for Analysis using IDs (Integers)
     target_user_id = 12  
-    target_path_id = 20   
+    target_path_id = 10   
     
     path_data = loader.data[target_user_id][target_path_id]
     
@@ -522,10 +590,10 @@ if __name__ == "__main__":
     analyze_dataset_summary(path_data)
     
     # 4. Plots
-    plot_histogram(path_data, "ppg_ch0")
+    # plot_histogram(path_data, "ppi")
     # plot_robot_path(path_data)
     # plot_timeseries_over_time(path_data, ["path_deviation_left", "user_force_y", "robot_vel_y"])
-    plot_timeseries_over_time(path_data, ["ppg_ch0"])
+    # plot_timeseries_over_time(path_data, ["ppi", "hrv", "heart_rate"])
 
     # 5. Scenario Overlay
     raw_scenario = load_scenario_by_path_number(path_number=target_path_id, folder_path=scenario_folder)

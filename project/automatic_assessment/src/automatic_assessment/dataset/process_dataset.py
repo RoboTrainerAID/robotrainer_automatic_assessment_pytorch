@@ -7,42 +7,53 @@ import sys
 from pathlib import Path
 import automatic_assessment.dataset.config as config
 from automatic_assessment.dataset.timeseries_loader import TimeseriesLoader
-from automatic_assessment.dataset.timeseries_features import TimeseriesFeatures
+from automatic_assessment.dataset.timeseries_preprocessor import TimeseriesPreprocessor
+from automatic_assessment.dataset.timeseries_derived_ts import TimeseriesDerivedTS
+from automatic_assessment.dataset.timeseries_features import TimeseriesFeatureExtractor
 from automatic_assessment.dataset.timeseries_validation import TimeseriesValidator
 from automatic_assessment.dataset.timeseries_imputer import TimeseriesImputer
 
 def main():
-    print(f"Loading dataset from: {config.DATASET_ROOT}")
-    
-    # Initialize loader with the config module
+    # 0. Load raw data
     loader = TimeseriesLoader(config)
-    loader.load_all()
-    dataset = loader.data
+    dataset = loader.load(config.DATASET_FOLDER)
     
-    # 1. First Validation
+    # 1. Preprocessing (Trimming & Cleaning)
+    preprocessor = TimeseriesPreprocessor(dataset, config)
+    preprocessor.process()
+
+    # 2. First Validation
     # print("\nValidating dataset (Pre-Imputation)...")
     validation_report = TimeseriesValidator.validate_dataset(dataset, config, check_all_disturbance=False)
     # TimeseriesValidator.print_validation_report(validation_report)
-    # TimeseriesValidator.print_dataset_summary(dataset)
+    TimeseriesValidator.print_dataset_summary(dataset)
 
-    # 2. Imputation if needed
+    # 3. Imputation if needed
     imputer = TimeseriesImputer(dataset, config)
     imputer.impute_from_report(validation_report)
     imputer.impute_zero_disturbance()
     
-    # 3. Second Validation
+    # 4. Second Validation
     print("\nValidating dataset (Post-Imputation)...")
     validation_report_post = TimeseriesValidator.validate_dataset(dataset, config)
     TimeseriesValidator.print_validation_report(validation_report_post)
     TimeseriesValidator.print_dataset_summary(dataset)
 
-    # 4. Extract features
+    # 5. Preprocessing (Derived Timeseries)
+    processor = TimeseriesDerivedTS(dataset)
+    processor.process()
+
+    dataset.save("/data/raw/timeseries_numpy_processed")
+    processed_dataset = loader.load("/data/raw/timeseries_numpy_processed")
+    TimeseriesValidator.print_dataset_summary(processed_dataset)
+
+    # 6. Extract features
     print("Extracting statistical features...")
-    extractor = TimeseriesFeatures(dataset)
+    extractor = TimeseriesFeatureExtractor(processed_dataset)
     features = extractor.extract_features()
     
     # Save to CSV using the config path
     extractor.save_features_to_csv()
-
+    
 if __name__ == "__main__":
     main()

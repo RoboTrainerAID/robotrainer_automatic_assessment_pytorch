@@ -95,7 +95,8 @@ class TimeseriesValidator:
     def print_dataset_summary(data: Dict[int, Dict[int, PathData]]) -> None:
         """
         Prints a summary of the loaded dataset statistics.
-        Includes number of users, range of paths per user, and range of timeseries per path.
+        Includes number of users, range of paths per user, range of timeseries per path,
+        and range of path durations.
         """
         num_users = len(data)
         if num_users == 0:
@@ -107,18 +108,33 @@ class TimeseriesValidator:
         min_paths = min(path_counts)
         max_paths = max(path_counts)
 
-        # Calculate timeseries statistics per path
+        # Calculate timeseries statistics per path and durations
         ts_counts = []
+        durations = []
         for user_data in data.values():
             for pd in user_data.values():
                 ts_counts.append(len(pd.timeseries))
+                
+                # Check scalar features first
+                if "duration" in pd.scalar_features:
+                    durations.append(pd.scalar_features["duration"])
+                # Fallback to meta
+                elif pd.meta and "duration" in pd.meta:
+                    try:
+                        durations.append(float(pd.meta["duration"]))
+                    except (ValueError, TypeError):
+                        pass
         
         min_ts = min(ts_counts) if ts_counts else 0
         max_ts = max(ts_counts) if ts_counts else 0
+        
+        min_dur = min(durations) if durations else 0.0
+        max_dur = max(durations) if durations else 0.0
 
         print("-" * 60)
         print(f"Dataset Summary")
         print(f"  Users: {num_users}")
         print(f"  Paths per User: {min_paths} - {max_paths}")
         print(f"  Timeseries per Path: {min_ts} - {max_ts}")
+        print(f"  Path Duration (s): {min_dur:.2f} - {max_dur:.2f}")
         print("-" * 60)

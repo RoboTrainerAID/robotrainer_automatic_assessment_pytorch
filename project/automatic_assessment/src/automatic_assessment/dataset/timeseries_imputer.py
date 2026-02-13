@@ -63,16 +63,20 @@ class TimeseriesImputer:
                     duration = 0.0
                     start_time = 0.0
 
-                    if pd_data.meta and "duration" in pd_data.meta:
+                    # Check scalar features first for duration
+                    if "duration" in pd_data.scalar_features:
+                        duration = pd_data.scalar_features["duration"]
+                    # Fallback to meta (legacy or raw data)
+                    elif pd_data.meta and "duration" in pd_data.meta:
                         try:
                             duration = float(pd_data.meta["duration"])
-                            # Try to get start timestamp from meta or robot_vel_x
-                            if "trimmed_start_timestamp" in pd_data.meta:
-                                start_time = float(pd_data.meta["trimmed_start_timestamp"])
                         except (ValueError, TypeError):
                             pass
+
+                    if pd_data.meta and "trimmed_start_timestamp" in pd_data.meta:
+                         start_time = float(pd_data.meta["trimmed_start_timestamp"])
                     
-                    # Fallback for timing if meta fails
+                    # Fallback for timing if meta/scalars fails
                     if duration == 0.0 and pd_data.timeseries:
                         try:
                             # Use robot_vel_x as reliable reference if present
@@ -163,11 +167,13 @@ class TimeseriesImputer:
         imputed_value = self._calculate_robust_mean(valid_values)
 
         # 3. Determine Timestamp (Middle of the session)
-        # Try to get duration from meta, otherwise estimate from other ts
+        # Try to get duration from scalars, then meta, otherwise estimate from other ts
         duration = 0.0
         start_time = 0.0
         
-        if target_pd.meta and "duration" in target_pd.meta:
+        if "duration" in target_pd.scalar_features:
+            duration = target_pd.scalar_features["duration"]
+        elif target_pd.meta and "duration" in target_pd.meta:
             # Some meta files might have duration in string or float
             try:
                 duration = float(target_pd.meta["duration"])

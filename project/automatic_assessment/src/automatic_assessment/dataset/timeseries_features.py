@@ -1,314 +1,326 @@
 """
-Advanced statistical feature extraction for timeseries data.
+Feature extraction logic for timeseries data.
+Converts raw timeseries into a flat feature vector per path.
 """
 
 import numpy as np
 import pandas as pd
-from typing import Dict, Callable
-from scipy.signal import periodogram
-from automatic_assessment.dataset.timeseries_loader import PathData
+from scipy.stats import pearsonr
+from scipy.signal import welch, correlate
+from typing import Dict, List, Any, Callable, Tuple
+import warnings
+
+from automatic_assessment.dataset.timeseries_loader import TimeseriesDataset, PathData
 import automatic_assessment.dataset.config as config
 
+class TimeseriesFeatureExtractor:
+    """
+    Extracts scalar features from time-series data based on config definitions.
+    """
 
-class TimeseriesFeatures:
-
-    def __init__(self, dataset: Dict[int, Dict[int, PathData]]) -> None:
+    def __init__(self, dataset: TimeseriesDataset) -> None:
         self.dataset = dataset
         self.features_df = pd.DataFrame()
-        self.feature_fns = self._feature_functions()
-
-    # ============================================================
-    # Robust Feature Functions
-    # ============================================================
-
-    def _robust_clip(self, v):
-        q1 = np.percentile(v, 25)
-        q3 = np.percentile(v, 75)
-        iqr = q3 - q1
-        lower = q1 - 3 * iqr
-        upper = q3 + 3 * iqr
-        return np.clip(v, lower, upper)
-
-    def _feature_functions(self) -> Dict[str, Callable]:
-
-        return {
-
-            "trimmed_mean": lambda v, t=None: float(np.mean(self._robust_clip(v))),
-            "std": lambda v, t=None: float(np.std(v)),
-            "p95": lambda v, t=None: float(np.percentile(v, 95)),
-            "p05": lambda v, t=None: float(np.percentile(v, 5)),
-            "rms": lambda v, t=None: float(np.sqrt(np.mean(self._robust_clip(v) ** 2))),
-            "abs_mean": lambda v, t=None: float(np.mean(np.abs(v))),
-            "energy": lambda v, t=None: float(np.sum(self._robust_clip(v) ** 2)),
-
-            "rms_diff": lambda v, t=None: float(
-                np.sqrt(np.mean(np.diff(self._robust_clip(v)) ** 2))
-            ) if len(v) > 1 else 0.0,
-
-            "impulse": lambda v, t: float(
-                np.sum(np.abs(self._robust_clip(v[:-1])) * np.diff(t))
-            ) if t is not None and len(t) > 1 else 0.0,
-            
-            # --- New Physical Integrals ---
-            "integral": lambda v, t: float(
-                np.sum(v[:-1] * np.diff(t))
-            ) if t is not None and len(t) > 1 else 0.0,
-
-            "abs_integral": lambda v, t: float(
-                np.sum(np.abs(v[:-1]) * np.diff(t))
-            ) if t is not None and len(t) > 1 else 0.0,
-            # ------------------------------
-
-            "band_power_voluntary": lambda v, t=None: self._band_power(
-                v, t, config.VOLUNTARY_BAND
-            ),
-
-            "band_power_tremor": lambda v, t=None: self._band_power(
-                v, t, config.TREMOR_BAND
-            ),
-        }
-
-    def _band_power(self, v: np.ndarray, t: np.ndarray, band: tuple) -> float:
-        if len(v) < 4:
-            return 0.0
-        v = self._robust_clip(v)
-        fs = self._estimate_fs(t)
-        f, Pxx = periodogram(v, fs=fs)
-        mask = (f >= band[0]) & (f <= band[1])
-        return float(np.sum(Pxx[mask]))
-
-    def _estimate_fs(self, t: np.ndarray) -> float:
-        """
-        Estimates sampling frequency from the time array.
-        Uses median time difference to be robust against dropped packets or gaps.
-        """
-        if t is None or len(t) < 2:
-             return 10.0
-        
-        # Calculate time differences
-        dt = np.diff(t)
-        
-        # Filter strictly positive intervals to avoid division by zero or negative time
-        dt = dt[dt > 1e-6]
-        
-        if len(dt) == 0:
-            return 10.0
-            
-        # Use median to ignore potential large gaps in data
-        median_dt = np.median(dt)
-        
-        return 1.0 / median_dt
-
-    # ============================================================
-    # Derived Timeseries
-    # ============================================================
-
-    def _add_force_magnitudes(self, ts_dict: Dict[str, np.ndarray]) -> None:
-        """
-        Derives physical quantities including equivalent magnitudes, Power, and Work.
-        Lever arm (r) = 0.35m.
-        """
-        r_handle = 0.35  # meters
-        
-        # Helper to get column vectors if they exist
-        def get_vec(name_x, name_y, name_z=None):
-            if name_x in ts_dict and name_y in ts_dict:
-                vx = ts_dict[name_x][:, config.COL_VALUE]
-                vy = ts_dict[name_y][:, config.COL_VALUE]
-                vz = ts_dict[name_z][:, config.COL_VALUE] if (name_z and name_z in ts_dict) else np.zeros_like(vx)
-                # Return time reference from x
-                return ts_dict[name_x][:, :2], vx, vy, vz
-            return None
-
-        # 1. Total User Effort (Force + Torque)
-        # F_equiv = sqrt(Fx^2 + Fy^2 + (Tz / r)^2)
-        user_f_data = get_vec("user_force_x", "user_force_y", "user_torque_z")
-        if user_f_data:
-            time_cols, fx, fy, tz = user_f_data
-            
-            # Linear Magnitude
-            lin_mag = np.sqrt(fx**2 + fy**2)
-            ts_dict["user_force_lin_mag"] = np.column_stack((time_cols, lin_mag))
-            
-            # Combined Equivalent Magnitude (at handle)
-            f_tan = tz / r_handle # Convert torque to tangential force
-            total_mag = np.sqrt(fx**2 + fy**2 + f_tan**2)
-            ts_dict["user_force_total_mag"] = np.column_stack((time_cols, total_mag))
-
-        # 2. Total Handle Velocity (Linear + Rotational)
-        # V_equiv = sqrt(Vx^2 + Vy^2 + (Wz * r)^2)
-        robot_v_data = get_vec("robot_vel_x", "robot_vel_y", "robot_vel_rot_z")
-        if robot_v_data:
-            time_cols, vx, vy, wz = robot_v_data
-            
-            # Linear Magnitude
-            lin_mag = np.sqrt(vx**2 + vy**2)
-            ts_dict["robot_vel_lin_mag"] = np.column_stack((time_cols, lin_mag))
-            
-            # Combined Equivalent Magnitude (velocity of handle)
-            v_tan = wz * r_handle
-            total_mag = np.sqrt(vx**2 + vy**2 + v_tan**2)
-            ts_dict["robot_vel_total_mag"] = np.column_stack((time_cols, total_mag))
-
-        # 3. User Power Interaction
-        # P = F.v + T.w
-        if user_f_data and robot_v_data:
-            # Align lengths if necessary (usually robust if loaded together)
-            n = min(len(user_f_data[1]), len(robot_v_data[1]))
-            
-            fx, fy, tz = user_f_data[1][:n], user_f_data[2][:n], user_f_data[3][:n]
-            vx, vy, wz = robot_v_data[1][:n], robot_v_data[2][:n], robot_v_data[3][:n]
-            time_cols = user_f_data[0][:n]
-
-            # Power calculation (Watts)
-            # Dot product of force and velocity vectors
-            p_trans = fx * vx + fy * vy
-            p_rot   = tz * wz
-            p_total = p_trans + p_rot
-
-            ts_dict["user_power"] = np.column_stack((time_cols, p_total))
-
-            # 4. Work (Accumulated Energy)
-            # We calculate this as a timeseries of cumulative sum for visualization,
-            # but the 'integral' feature in feature_fns will calculate single-value Total Work later.
-            # Work = Integral(P dt)
-            if n > 1:
-                times = time_cols[:, 0] # Use Raw timestamps for diff
-                dt = np.diff(times)
-                # Compute work increments (Joules)
-                dW = p_total[:-1] * dt
-                # Prepend 0 for initial state
-                work_cum = np.pad(np.cumsum(dW), (1, 0), 'constant')
-                ts_dict["user_work_cum"] = np.column_stack((time_cols, work_cum))
-
-        # Disturbance Magnitude (Linear only usually)
-        if "disturbance_force_x" in ts_dict and "disturbance_force_y" in ts_dict:
-            fx = ts_dict["disturbance_force_x"]
-            fy = ts_dict["disturbance_force_y"]
-            mag = np.sqrt(fx[:, config.COL_VALUE]**2 + fy[:, config.COL_VALUE]**2)
-            ts_dict["disturbance_force_mag"] = np.column_stack(
-                (fx[:, :2], mag)
-            )
-
-    # ============================================================
-    # Correlation
-    # ============================================================
-
-    def _compute_correlation(self, ts1, ts2):
-
-        t1, v1 = ts1[:, 1], ts1[:, 2]
-        t2, v2 = ts2[:, 1], ts2[:, 2]
-
-        common_t = np.linspace(
-            max(t1.min(), t2.min()),
-            min(t1.max(), t2.max()),
-            200,
-        )
-
-        v1_interp = np.interp(common_t, t1, v1)
-        v2_interp = np.interp(common_t, t2, v2)
-
-        if len(v1_interp) < 3:
-            return 0.0
-
-        # Check for constant arrays to avoid RuntimeWarning in corrcoef
-        if np.std(v1_interp) < 1e-9 or np.std(v2_interp) < 1e-9:
-            return 0.0
-
-        corr = np.corrcoef(v1_interp, v2_interp)[0, 1]
-        
-        if np.isnan(corr):
-            return 0.0
-            
-        return float(corr)
-
-    # ============================================================
-    # Main Extraction
-    # ============================================================
 
     def extract_features(self) -> pd.DataFrame:
-
+        """
+        Iterates through the dataset and extracts features for every path.
+        Returns a pandas DataFrame where each row is a path.
+        """
         rows = []
 
+        print("Extracting features...")
         for user_id, paths in self.dataset.items():
             for path_id, pd_data in paths.items():
                 
-                # Base row with identifiers (Wide Format: 1 row per path)
-                row_data = {
+                # Base metadata
+                row = {
                     "user_id": user_id,
                     "path_id": path_id,
                 }
-                
-                # Add existing scalar features (e.g. from meta or single value files)
-                if pd_data.scalar_features:
-                    row_data.update(pd_data.scalar_features)
 
-                # Add duration from meta if available
-                if pd_data.meta and "duration" in pd_data.meta:
-                    try:
-                        row_data["duration"] = float(pd_data.meta["duration"])
-                    except (ValueError, TypeError):
-                        pass
+                # 1. Add Scalar Features (already computed or loaded single values)
+                for name, val in pd_data.scalar_features.items():
+                    row[name] = val
 
-                ts_dict = dict(pd_data.timeseries)
+                # 2. Extract Statistical Features per Timeseries
+                ts_features = self._compute_ts_features(pd_data)
+                row.update(ts_features)
 
-                # Add derived magnitudes and physical quantities
-                self._add_force_magnitudes(ts_dict)
+                # 3. Extract Correlation Features (with robust sync)
+                corr_features = self._compute_correlations(pd_data)
+                row.update(corr_features)
 
-                # ---- Per timeseries features ----
-                for ts_name, feature_list in config.TS_FEATURES.items():
+                # 4. Extract Time Delay Features
+                delay_features = self._compute_time_delays(pd_data)
+                row.update(delay_features)
 
-                    if ts_name not in ts_dict:
-                        continue
-
-                    arr = ts_dict[ts_name]
-                    # Data validation
-                    if arr.ndim < 2 or arr.shape[1] <= config.COL_VALUE:
-                        continue
-                        
-                    values = arr[:, config.COL_VALUE]
-                    times = arr[:, config.COL_REL_TS]
-
-                    for fname in feature_list:
-                        func = self.feature_fns.get(fname)
-                        if func is None:
-                            continue
-                        
-                        # Create unique column name: <ts_name>_<feature>
-                        col_name = f"{ts_name}_{fname}"
-
-                        try:
-                            row_data[col_name] = func(values, times)
-                        except Exception:
-                            row_data[col_name] = np.nan
-
-                # ---- Correlation features ----
-                for ts1_name, ts2_name in config.CORRELATION_FEATURES:
-
-                    if ts1_name in ts_dict and ts2_name in ts_dict:
-
-                        corr = self._compute_correlation(
-                            ts_dict[ts1_name],
-                            ts_dict[ts2_name],
-                        )
-
-                        col_name = f"{ts1_name}_corr_{ts2_name}"
-                        row_data[col_name] = corr
-
-                rows.append(row_data)
+                rows.append(row)
 
         self.features_df = pd.DataFrame(rows)
+        if not self.features_df.empty:
+            print(f"  Extracted {self.features_df.shape[1]} features for {self.features_df.shape[0]} paths.")
         return self.features_df
 
-    # ============================================================
-    # Save
-    # ============================================================
-
-    def save_features_to_csv(self):
+    def save_features_to_csv(self, output_path: str = None) -> None:
+        """
+        Saves the extracted features Dataframe to CSV.
+        """
+        if output_path is None:
+            output_path = config.CSV_OUTPUT_PATH
+        
         if self.features_df.empty:
-            print("Warning: Feature DataFrame is empty.")
+            print("Warning: No features to save.")
             return
 
-        config.CSV_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        self.features_df.to_csv(config.CSV_OUTPUT_PATH, index=False)
-        print(f"Features saved to {config.CSV_OUTPUT_PATH}")
+        print(f"Saving features to {output_path}...")
+        # Sort columns roughly alphabetically but keep IDs first
+        cols = list(self.features_df.columns)
+        if "user_id" in cols: cols.remove("user_id")
+        if "path_id" in cols: cols.remove("path_id")
+        cols = sorted(cols)
+        final_cols = ["user_id", "path_id"] + cols
+        
+        # Determine cols that actually exist
+        final_cols = [c for c in final_cols if c in self.features_df.columns]
+        
+        self.features_df[final_cols].to_csv(output_path, index=False)
+
+    def _compute_ts_features(self, pd_data: PathData) -> Dict[str, float]:
+        """
+        Computes robust statistics for specific timeseries defined in config.TS_FEATURES.
+        """
+        feat_dict = {}
+
+        for ts_name, feature_list in config.TS_FEATURES.items():
+            if ts_name not in pd_data.timeseries:
+                continue
+
+            # Extract value column (Assumes index 2 is value)
+            arr = pd_data.timeseries[ts_name]
+            if arr.shape[0] == 0:
+                continue
+            
+            timestamps = arr[:, config.COL_RAW_TS]
+            values = arr[:, config.COL_VALUE]
+
+            # sampling rate estimation for freq domain features
+            fs = 1.0
+            if len(timestamps) > 1:
+                duration = timestamps[-1] - timestamps[0]
+                if duration > 0:
+                    fs = (len(timestamps) - 1) / duration
+
+            for f_name in feature_list:
+                cleaned_name = f"{ts_name}_{f_name}"
+                val = np.nan
+
+                try:
+                    if f_name == "trimmed_mean":
+                        val = self._feat_trimmed_mean(values)
+                    elif f_name == "abs_mean":
+                        val = np.mean(np.abs(values))
+                    elif f_name == "std":
+                        val = np.std(values)
+                    elif f_name == "rms":
+                        val = np.sqrt(np.mean(values**2))
+                    elif f_name == "p95":
+                        val = np.percentile(values, 95)
+                    elif f_name == "p05":
+                        val = np.percentile(values, 5)
+                    
+                    # --- Integral Features ---
+                    elif f_name in ["energy", "integral_squared"]:
+                        # Signal Energy: Integral of squared signal
+                        # Unit: [Unit^2 * s]
+                        if len(timestamps) > 1:
+                            dt = np.mean(np.diff(timestamps))
+                            val = np.sum(values**2) * dt
+                            
+                    elif f_name in ["integral", "impulse", "work", "total_distance"]:
+                        # Signed Integral: Area under curve
+                        # Unit: [Unit * s]
+                        # Called 'impulse' for Force, 'work' for Power, 'displacement' for Velocity
+                        if len(timestamps) > 1:
+                            dt = np.mean(np.diff(timestamps))
+                            val = np.sum(values) * dt
+                            
+                    elif f_name in ["absolute_integral"]:
+                        # Absolute Integral: Area under absolute curve
+                        # Unit: [Unit * s]
+                        if len(timestamps) > 1:
+                            dt = np.mean(np.diff(timestamps))
+                            val = np.sum(np.abs(values)) * dt
+
+                    elif f_name == "rms_diff":
+                        # Smoothness proxy
+                        diffs = np.diff(values)
+                        val = np.sqrt(np.mean(diffs**2))
+                    elif f_name == "band_power_voluntary":
+                        val = self._feat_band_power(values, fs, config.VOLUNTARY_BAND)
+                    elif f_name == "band_power_tremor":
+                        val = self._feat_band_power(values, fs, config.TREMOR_BAND)
+                
+                except Exception as e:
+                    # Ignore calc errors, leave as NaN
+                    pass
+
+                feat_dict[cleaned_name] = val
+        
+        return feat_dict
+
+    def _compute_correlations(self, pd_data: PathData) -> Dict[str, float]:
+        """
+        Computes Pearson correlation for pairs defined in config.CORRELATION_FEATURES.
+        Uses robust synchronization (interpolation) to handle signals of different frequencies.
+        """
+        feat_dict = {}
+
+        for (name_a, name_b) in config.CORRELATION_FEATURES:
+            out_key = f"corr_{name_a}_vs_{name_b}"
+            
+            if name_a not in pd_data.timeseries or name_b not in pd_data.timeseries:
+                feat_dict[out_key] = np.nan
+                continue
+
+            arr_a = pd_data.timeseries[name_a]
+            arr_b = pd_data.timeseries[name_b]
+
+            # Synchronize signals to the same time basis
+            vals_a, vals_b, fs = self._synchronize_signals(arr_a, arr_b)
+
+            if len(vals_a) < 3:
+                feat_dict[out_key] = np.nan
+                continue
+
+            try:
+                # Add constant check to avoid warnings
+                if np.std(vals_a) == 0 or np.std(vals_b) == 0:
+                     corr = 0.0
+                else:
+                    corr, _ = pearsonr(vals_a, vals_b)
+                feat_dict[out_key] = corr
+            except Exception:
+                feat_dict[out_key] = np.nan
+
+        return feat_dict
+
+    def _compute_time_delays(self, pd_data: PathData) -> Dict[str, float]:
+        """
+        Computes the time delay (lag) between two signals using cross-correlation.
+        Positive delay means Signal B follows Signal A.
+        """
+        feat_dict = {}
+
+        for (name_a, name_b) in config.TIME_DELAY_FEATURES:
+            out_key = f"delay_{name_a}_to_{name_b}"
+            
+            if name_a not in pd_data.timeseries or name_b not in pd_data.timeseries:
+                feat_dict[out_key] = np.nan
+                continue
+
+            arr_a = pd_data.timeseries[name_a]
+            arr_b = pd_data.timeseries[name_b]
+            
+            # 1. Synchronize to common time basis (Reference is usually lower freq)
+            vals_a, vals_b, fs = self._synchronize_signals(arr_a, arr_b)
+            
+            if len(vals_a) < 10 or fs is None:
+                feat_dict[out_key] = np.nan
+                continue
+                
+            # 2. Normalize (Zero Mean) - Vital for cross-correlation
+            sig_a = vals_a - np.mean(vals_a)
+            sig_b = vals_b - np.mean(vals_b)
+            
+            if np.std(sig_a) == 0 or np.std(sig_b) == 0:
+                feat_dict[out_key] = 0.0
+                continue
+            
+            # 3. Cross-Correlation
+            # mode='full' returns correlation at all shifts
+            xcorr = correlate(sig_b, sig_a, mode='full', method='auto')
+            lags = np.arange(-(len(sig_a) - 1), len(sig_a))
+            
+            # 4. Find Lag at Max Correlation
+            max_idx = np.argmax(xcorr)
+            lag_samples = lags[max_idx]
+            
+            # 5. Convert to Time (seconds)
+            time_delay = lag_samples / fs
+            
+            feat_dict[out_key] = time_delay
+            
+        return feat_dict
+
+    def _synchronize_signals(self, arr_a: np.ndarray, arr_b: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Synchronizes two signals and returns the sampling frequency of the reference (time basis).
+        """
+        if arr_a.shape[0] == 0 or arr_b.shape[0] == 0:
+             return np.array([]), np.array([]), None
+        
+        # Determine Reference (shorter length / lower freq implied)
+        if arr_a.shape[0] <= arr_b.shape[0]:
+            ref, sec = arr_a, arr_b
+            swapped = False
+        else:
+            ref, sec = arr_b, arr_a
+            swapped = True
+            
+        ref_times = ref[:, config.COL_RAW_TS]
+        sec_times = sec[:, config.COL_RAW_TS]
+        
+        ref_vals = ref[:, config.COL_VALUE]
+        sec_vals = sec[:, config.COL_VALUE]
+        
+        # Interpolate Secondary to Reference Times
+        aligned_sec_vals = np.interp(ref_times, sec_times, sec_vals)
+        
+        # Estimate Frequency of Reference
+        fs = 1.0
+        if len(ref_times) > 1:
+            duration = ref_times[-1] - ref_times[0]
+            if duration > 0:
+                fs = (len(ref_times) - 1) / duration
+        
+        if not swapped:
+            return ref_vals, aligned_sec_vals, fs
+        else:
+            return aligned_sec_vals, ref_vals, fs
+
+    # --- Feature Implementations ---
+
+    def _feat_trimmed_mean(self, values: np.ndarray, proportion: float = 0.1) -> float:
+        """Calculates trimmed mean of ABSOLUTE values excluding the top and bottom proportion/2."""
+        # Use absolute values for magnitude estimation
+        abs_values = np.abs(values)
+        
+        lower = np.percentile(abs_values, proportion * 50)
+        upper = np.percentile(abs_values, 100 - (proportion * 50))
+        
+        mask = (abs_values >= lower) & (abs_values <= upper)
+        if not np.any(mask):
+            return float(np.mean(abs_values))
+            
+        return float(np.mean(abs_values[mask]))
+
+    def _feat_band_power(self, values: np.ndarray, fs: float, band: tuple) -> float:
+        """Calculates Average Spectral Power in a frequency band using Welch's method."""
+        if fs <= 0: return np.nan
+        
+        # Welch's method
+        nperseg = min(len(values), 256)
+        freqs, psd = welch(values, fs, nperseg=nperseg)
+        
+        # Find indices
+        idx_min = np.argmax(freqs >= band[0])
+        idx_max = np.argmax(freqs > band[1])
+        if idx_max == 0: idx_max = len(freqs) # If band goes beyond Nyquist
+        
+        if idx_min >= idx_max:
+             return 0.0
+             
+        # Average power in band (integrate PSD)
+        band_power = np.trapz(psd[idx_min:idx_max], freqs[idx_min:idx_max])
+        return float(band_power)

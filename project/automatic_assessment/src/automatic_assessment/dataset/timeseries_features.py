@@ -35,8 +35,8 @@ class TimeseriesFeatureExtractor:
                 
                 # Base metadata
                 row = {
-                    "user_id": user_id,
-                    "path_id": path_id,
+                    "user": user_id,
+                    "path": path_id,
                 }
 
                 # 1. Add Scalar Features (already computed or loaded single values)
@@ -76,10 +76,10 @@ class TimeseriesFeatureExtractor:
         print(f"Saving features to {output_path}...")
         # Sort columns roughly alphabetically but keep IDs first
         cols = list(self.features_df.columns)
-        if "user_id" in cols: cols.remove("user_id")
-        if "path_id" in cols: cols.remove("path_id")
+        if "user" in cols: cols.remove("user")
+        if "path" in cols: cols.remove("path")
         cols = sorted(cols)
-        final_cols = ["user_id", "path_id"] + cols
+        final_cols = ["user", "path"] + cols
         
         # Determine cols that actually exist
         final_cols = [c for c in final_cols if c in self.features_df.columns]

@@ -13,6 +13,20 @@ from automatic_assessment.dataset.timeseries_features import TimeseriesFeatureEx
 from automatic_assessment.dataset.timeseries_validation import TimeseriesValidator
 from automatic_assessment.dataset.timeseries_imputer import TimeseriesImputer
 
+def create_features_csv():
+    # Load processed dataset
+    loader = TimeseriesLoader(config)
+    dataset = loader.load("/data/raw/timeseries_numpy_processed")
+    
+    # Extract features
+    print("Extracting statistical features...")
+    extractor = TimeseriesFeatureExtractor(dataset)
+    features = extractor.extract_features()
+    
+    # Save to CSV using the config path
+    extractor.save_features_to_csv()
+
+
 def main():
     # 0. Load raw data
     loader = TimeseriesLoader(config)
@@ -44,16 +58,7 @@ def main():
     processor.process()
 
     dataset.save("/data/raw/timeseries_numpy_processed")
-    processed_dataset = loader.load("/data/raw/timeseries_numpy_processed")
-    TimeseriesValidator.print_dataset_summary(processed_dataset)
-
-    # 6. Extract features
-    print("Extracting statistical features...")
-    extractor = TimeseriesFeatureExtractor(processed_dataset)
-    features = extractor.extract_features()
-    
-    # Save to CSV using the config path
-    extractor.save_features_to_csv()
     
 if __name__ == "__main__":
-    main()
+    # main()
+    create_features_csv()

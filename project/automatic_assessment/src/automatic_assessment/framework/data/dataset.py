@@ -1,330 +1,296 @@
-import os
 import pandas as pd
 import numpy as np
 import torch
+from pathlib import Path
 from torch.utils.data import Dataset as TorchDataset
-from sklearn.preprocessing import StandardScaler
+from typing import List, Tuple, Dict, Any, Union
 
-from automatic_assessment.framework.data.preprocessing import Preprocessor
-from automatic_assessment.framework.data.augmentation import user_augmentation
-from automatic_assessment.framework.dimred.lars import select_multitarget_top_sources_lars, get_source_name
-# from automatic_assessment.lasso import select_top_n_features_lasso
+import automatic_assessment.dataset.config as config
+from automatic_assessment.dataset.timeseries_loader import TimeseriesLoader, TimeseriesDataset
 
-class Dataset(TorchDataset):
-    def __init__(self, sampling_frequency, folder_path, recreate):
-        """
-        Original Dataset Structure:
-        1. timeseries_df
-            - Shape: (n_samples * n_paths * variable_timesteps, n_timeseries)
-            - Values: (28 * 20 * max. 79, 50) = (44240, 50)
-        2. path_related_df
-            - Shape: (n_samples * n_paths, n_path_features)
-            - Values: (28 * 20, 914) = (560, 914)
-        3. user_related_df
-            - Shape: (n_samples, n_user_features)
-            - Values: (28, 3)
-        4. target_df
-            - Shape: (n_samples, n_targets)
-            - Values: (28, 14)
-        """
+def prepare_and_split_data(
+    numpy_folder_name: str,
+    input_root: str,
+    output_root: str,
+    test_user_ids: List[int]
+):
+    """
+    Loads raw numpy data and related CSVs, performs data alignment and merging,
+    splits the dataset based on test users, and saves the resulting splits 
+    to separate folders (train/test).
+    """
+    print(f"\nPreparing dataset from {numpy_folder_name}...")
+    root = Path(output_root).resolve()
+    if not root.exists():
+        print(f"Directory {root} does not exist. Check your paths")
+        exit(1)
+    input_path = Path(input_root)
+
+    # 1. Load Timeseries Data (Raw numpy structure)
+    loader = TimeseriesLoader(config) 
+    full_ts_dataset = loader.load(input_path / numpy_folder_name)
+
+    # 2. Load CSVs
+    targets_df = pd.read_csv(input_path / "motoric_test.csv")
+    user_feat_df = pd.read_csv(input_path / "demographics.csv")
+    path_static_df = pd.read_csv(input_path / "task_difficulty.csv")
+    path_dynamic_df = pd.read_csv(input_path / "timeseries_features.csv")
+
+    # 3. Column Standardization & Merging
+    # Ensure standard names 'user' and 'path'
+    def standardize_cols(df):
+        cols = df.columns
+        if 'user_id' in cols: df.rename(columns={'user_id': 'user'}, inplace=True)
+        if 'path_id' in cols: df.rename(columns={'path_id': 'path'}, inplace=True)
+
+    standardize_cols(targets_df)
+    standardize_cols(user_feat_df)
+    standardize_cols(path_static_df)
+    standardize_cols(path_dynamic_df)
+
+    # Exclude known non-numeric columns like 'sex'
+    if 'sex' in user_feat_df.columns:
+        print("Dropping non-numeric column 'sex' from user features.")
+        user_feat_df.drop(columns=['sex'], inplace=True)
+
+    # Check for remaining non-numeric columns and warn
+    for df, name in [(user_feat_df, 'User Features'), (path_static_df, 'Task Difficulty'), (path_dynamic_df, 'Timeseries Features')]:
+        non_numeric = df.select_dtypes(exclude=[np.number]).columns
+        if len(non_numeric) > 0:
+            print(f"Warning: {name} contains non-numeric columns which may cause issues during tensor conversion: {list(non_numeric)}")
+
+    # Merge Static Path features (task_difficulty) into Dynamic Path features (timeseries_features)
+    # Result: Dataframe with (User, Path) granularity containing all path-related info
+    merged_path_df = pd.merge(path_dynamic_df, path_static_df, on='path', how='left')
+
+    # 4. Define Splits
+    all_users = sorted(targets_df['user'].unique())
+    train_users = [u for u in all_users if u not in test_user_ids]
+    
+    # Convert numpy ints to python ints for cleaner printing
+    train_users_print = [int(u) for u in train_users]
+
+    print(f"Total Users: {len(all_users)}")
+    print(f"Test Split Users ({len(test_user_ids)}): {test_user_ids}")
+    print(f"Train Split Users ({len(train_users)}): {train_users_print}")
+
+    # 5. Save Splits Helper
+    def save_split_data(split_name: str, user_ids: List[int]):
+        split_dir = root / split_name
+        split_dir.mkdir(exist_ok=True)
+        
+        # Filter DataFrames
+        u_sub = user_feat_df[user_feat_df['user'].isin(user_ids)].copy()
+        t_sub = targets_df[targets_df['user'].isin(user_ids)].copy()
+        p_sub = merged_path_df[merged_path_df['user'].isin(user_ids)].copy()
+        
+        # Filter Timeseries
+        # TimeseriesDataset behaves like a dictionary {user_id: {path_id: PathData}}
+        ts_map_sub = {uid: full_ts_dataset[uid] for uid in user_ids if uid in full_ts_dataset}
+        ts_dataset_sub = TimeseriesDataset(ts_map_sub)
+        
+        # Save to split folder
+        if not u_sub.empty:
+            print(f"Saving {split_name} split to {split_dir}...")
+            u_sub.to_csv(split_dir / "user_features.csv", index=False)
+            t_sub.to_csv(split_dir / "targets.csv", index=False)
+            p_sub.to_csv(split_dir / "path_features.csv", index=False)
+            
+            ts_dir = split_dir / "timeseries"
+            ts_dataset_sub.save(ts_dir)
+        else:
+            print(f"Warning: Empty split for {split_name}")
+
+    save_split_data("train", train_users)
+    save_split_data("test", test_user_ids)
+    print(f"Preparation complete. Data saved to {root}")
+
+
+def _load_dataset_split(
+    folder_path: str, 
+    load_timeseries: bool = True
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, np.ndarray, Dict]:
+    """
+    Internal helper to load a saved split into memory as Tensors.
+    Returns: x_ts, x_path, x_user, y, user_ids, feature_names
+    """
+    root = Path(folder_path)
+    if not (root / "targets.csv").exists():
+        raise FileNotFoundError(f"Dataset split not found at {root}")
+
+    # Load CSVs
+    targets_df = pd.read_csv(root / "targets.csv")
+    user_feat_df = pd.read_csv(root / "user_features.csv")
+    path_feat_df = pd.read_csv(root / "path_features.csv")
+    
+    # Sort to ensure alignment
+    targets_df.sort_values('user', inplace=True)
+    user_feat_df.sort_values('user', inplace=True)
+    path_feat_df.sort_values(['user', 'path'], inplace=True)
+    
+    users = targets_df['user'].values
+    unique_paths = sorted(path_feat_df['path'].unique())
+    
+    n_samples = len(users)
+    n_paths = len(unique_paths)
+
+    # --- 1. Y Targets ---
+    y_cols = [c for c in targets_df.columns if c != 'user']
+    y = torch.tensor(targets_df[y_cols].values, dtype=torch.float32)
+    
+    # --- 2. X User (N, UserFeats) ---
+    x_user_cols = [c for c in user_feat_df.columns if c != 'user']
+    x_user = torch.tensor(user_feat_df[x_user_cols].values, dtype=torch.float32)
+    
+    # --- 3. X Path (N, Paths, PathFeats) ---
+    # Realign to grid (User x Path)
+    mi = pd.MultiIndex.from_product([users, unique_paths], names=['user', 'path'])
+    path_feat_df = path_feat_df.set_index(['user', 'path']).reindex(mi)
+    
+    x_path_cols = path_feat_df.columns.tolist()
+    n_path_feats = len(x_path_cols)
+    
+    # Reshape
+    x_path_np = path_feat_df.values.astype(np.float32)
+    x_path = torch.tensor(x_path_np.reshape(n_samples, n_paths, n_path_feats))
+    
+    # --- 4. X Timeseries (N, Paths, Channels, Time) ---
+    x_ts_list = [] # Fallback if not padding, but we target tensor
+    feature_names = {
+        "user": x_user_cols,
+        "path": x_path_cols,
+        "ts": []
+    }
+    
+    if load_timeseries:
+        ts_dir = root / "timeseries"
+        if ts_dir.exists():
+            loader = TimeseriesLoader(config)
+            ts_data = loader.load(str(ts_dir))
+            
+            # Determine dimensions
+            # Identify active channels from first valid entry
+            sample_channels = []
+            max_time = 0
+            
+            # Scan for consistency
+            for u_id, u_paths in ts_data.items():
+                for p_id, p_data in u_paths.items():
+                    if not sample_channels and p_data.timeseries:
+                        sample_channels = sorted(list(p_data.timeseries.keys()))
+                    
+                    # Find max length
+                    for ts_name, arr in p_data.timeseries.items():
+                         # numpy arrays shape logic: (Time,) or (Time, Cols)
+                         ln = arr.shape[0]
+                         if ln > max_time: max_time = ln
+            
+            if not sample_channels:
+                print("Warning: No timeseries channels found.")
+                x_ts = torch.empty(n_samples, n_paths, 0, 0)
+            else:
+                n_channels = len(sample_channels)
+                feature_names['ts'] = sample_channels
+                
+                # Create Padded Tensor
+                x_ts_np = np.zeros((n_samples, n_paths, n_channels, max_time), dtype=np.float32)
+                
+                user_map = {u: i for i, u in enumerate(users)}
+                path_map = {p: i for i, p in enumerate(unique_paths)}
+                
+                for u_id, u_paths in ts_data.items():
+                    if u_id not in user_map: continue
+                    idx_u = user_map[u_id]
+                    
+                    for p_id, p_data in u_paths.items():
+                        if p_id not in path_map: continue
+                        idx_p = path_map[p_id]
+                        
+                        for c_idx, channel in enumerate(sample_channels):
+                            if channel in p_data.timeseries:
+                                arr = p_data.timeseries[channel]
+                                # Extract value column if multi-column, assuming time is dim 0
+                                if arr.ndim > 1:
+                                    # Fallback: take col specified in config or 0
+                                    val = arr[:, config.COL_VALUE] if arr.shape[1] > config.COL_VALUE else arr[:, 0]
+                                else:
+                                    val = arr
+                                
+                                ln = min(len(val), max_time)
+                                x_ts_np[idx_u, idx_p, c_idx, :ln] = val[:ln]
+                
+                x_ts = torch.tensor(x_ts_np)
+        else:
+            x_ts = torch.empty(0)
+    else:
+        x_ts = torch.empty(0)
+        
+    return x_ts, x_path, x_user, y, users, feature_names
+
+
+class AssessmentDataset(TorchDataset):
+    """
+    Dataset class that loads a prepared split (train/test) from disk.
+    
+    Structure:
+    - x_ts: (n_samples, n_paths, n_timeseries, variable_timesteps [padded])
+    - x_path: (n_samples, n_paths, n_path_features)
+    - x_user: (n_samples, n_user_features)
+    - y: (n_samples, n_targets)
+    """
+    def __init__(self, folder_path: str, load_timeseries: bool = True):
         self.folder_path = folder_path
-        if recreate:
-            print(f"Creating dataset at {folder_path} (Sampling: {sampling_frequency} Hz)...")
-            prep = Preprocessor(sampling_frequency, folder_path)
-            self.timeseries_df, self.path_related_df, self.user_related_df, self.target_df = prep.get_data()
-        else:
-            print(f"Loading existing dataset from {folder_path}...")
-            self.timeseries_df = pd.read_csv(f"{folder_path}/timeseries.csv")
-            self.path_related_df = pd.read_csv(f"{folder_path}/path.csv")
-            self.user_related_df = pd.read_csv(f"{folder_path}/user.csv")
-            self.target_df = pd.read_csv(f"{folder_path}/target.csv")
-
-    def create_augmented_dataset(self, augmentation_ratio: int, subfolder: str):
-        """
-        Augments the dataset by the specified ratio.
-        Modifies internal dataframes in-place.
-        """
-        print(f"\nCreating augmented dataset with ratio {augmentation_ratio}...")
-
-        if augmentation_ratio > 0:
-            original_path_related_cols = Preprocessor.PATH_RELATED_COLS
-            
-            # Call the modular function
-            # It returns the COMBINED (Original + Augmented) dataframes
-            self.target_df, self.user_related_df, self.path_related_df, self.timeseries_df = user_augmentation(
-                self.target_df,
-                self.user_related_df,
-                self.path_related_df,
-                self.timeseries_df,
-                augmentation_ratio,
-                original_path_related_cols
-            )
-
-            # Save Processed Dataset
-            self._save_csv_dataset(subfolder=subfolder)
-
-    def target_and_feature_selection(self, selected_targets, apply_lars: bool = False, max_n_timeseries: int = 20, max_n_path_features: int = 20, max_n_extracted_ts_features: int = 500):
-        """
-        Filters targets and optionally augments the dataset.
-        Modifies internal dataframes in-place.
-        """
-        # 1. Filter Targets
-        # TODO: Later use target_cluster.py to select best targets
-        # We ensure 'user' is kept for ID matching
-        self.target_df = Preprocessor.filter_dataframe(self.target_df, selected_targets + ['user'])
-
-        # 2. Multi-Target LARS Feature Selection
-        if apply_lars:
-            # --- 2a. Time-Series Source Selection ---
-            # Identify columns derived from time-series features (candidates for TS filtering)
-            actual_path_cols = Preprocessor.PATH_RELATED_COLS + Preprocessor.TASK_DIFFICULTY_COLS
-            ts_feature_cols = [c for c in self.path_related_df.columns 
-                               if c not in actual_path_cols and c not in ['user', 'path']]
-            
-            print(f"Applying LARS for Time-Series selection (Top {max_n_timeseries} sources out of {len(ts_feature_cols)} TS-derived feats)...")
-
-            # Flatten to (User x Features) and align with Targets
-            X_ts, y_aligned = self._flatten_and_align(self.path_related_df, ts_feature_cols, self.target_df)
-            
-            # Scale
-            scaler_X, scaler_y = StandardScaler(), StandardScaler()
-            X_scaled = pd.DataFrame(scaler_X.fit_transform(X_ts), columns=X_ts.columns)
-            y_scaled = pd.DataFrame(scaler_y.fit_transform(y_aligned), columns=y_aligned.columns)
-            
-            # Select Sources matching timeseries columns
-            selected_sources = select_multitarget_top_sources_lars(
-                X_scaled, y_scaled, 
-                possible_sources=list(self.timeseries_df.columns), 
-                top_n_sources=max_n_timeseries
-            )
-            self.timeseries_df = Preprocessor.filter_dataframe(self.timeseries_df, selected_sources)
-
-            # --- 2b. Path-Related Feature Selection ---
-            # Now we look at the path_related_df itself to reduce its width.
-            # Candidates: All numeric columns except indices
-            print(f"Applying LARS for Path Feature selection (Top {max_n_path_features} features)...")
-            
-            # Flatten to (User x Features)
-            X_path, _ = self._flatten_and_align(self.path_related_df, actual_path_cols, self.target_df)
-            
-            # Scale Reuse y_scaled
-            X_path_scaled = pd.DataFrame(scaler_X.fit_transform(X_path), columns=X_path.columns)
-            
-            selected_path_feats = select_multitarget_top_sources_lars(
-                X_path_scaled, y_scaled, 
-                possible_sources=actual_path_cols, 
-                top_n_sources=max_n_path_features
-            )
-
-            selected_path_extracted_ts_feats = select_multitarget_top_sources_lars(
-                X_scaled, y_scaled, 
-                possible_sources=ts_feature_cols, 
-                top_n_sources=max_n_extracted_ts_features
-            )
-
-            self.path_related_df = Preprocessor.filter_dataframe(self.path_related_df, selected_path_feats + selected_path_extracted_ts_feats)
-
-        # 4. Ensure int columns
-        # re-casting types if jittering introduced floats to integer columns
-        # self.user_related_df['user'] = self.user_related_df['user'].astype(int)
-        # self.path_related_df['user'] = self.path_related_df['user'].astype(int)
-
-        # 5. LASSO Feature Selection
-        # TODO: Later use LASSO on the path-related + user_level features
-        # if apply_lasso:
-        #     select_top_n_features_lasso()
-
-
-    def _flatten_and_align(self, feature_df: pd.DataFrame, feature_cols: list[str], target_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Helper to flatten path-level DataFrame to User-level (wide format) and align with targets.
-        Used for LARS feature selection where X and y must match on dimension 0 (User).
-        """
-        # Check for missing columns explicitly
-        missing_cols = [c for c in feature_cols if c not in feature_df.columns]
-        if missing_cols:
-            raise ValueError(f"The following required columns are missing from the dataframe: {missing_cols}")
-
-        # Filter specific feature columns into sub DF (keeps 'user', 'path' indices)
-        # We need 'path' to pivot.
-        cols = list(set(feature_cols + ['path']))
-        subset = Preprocessor.filter_dataframe(feature_df, cols, "Feature DF")
+        print(f"Loading dataset from {folder_path}...")
         
-        # Pivot: index='user', columns='path', values=features
-        pivoted = subset.pivot(index='user', columns='path', values=feature_cols)
+        self.x_ts, self.x_path, self.x_user, self.y, self.users, self.feature_names = _load_dataset_split(
+            folder_path, load_timeseries
+        )
         
-        # Flatten MultiIndex columns: "feature_name" + "_path_" + "path_id"
-        pivoted.columns = [f"{col[0]}_path_{col[1]}" for col in pivoted.columns]
-        pivoted = pivoted.reset_index()
+        # Original dataset clones for restoration if needed
+        self._x_ts_orig = self.x_ts.clone()
+        self._x_path_orig = self.x_path.clone()
+        self._x_user_orig = self.x_user.clone()
         
-        # Merge with targets to ensure alignment
-        aligned = pd.merge(pivoted, target_df, on='user', how='inner')
-        
-        # Separate X and y
-        y_cols = [c for c in target_df.columns if c != 'user']
-        X = aligned.drop(columns=['user'] + y_cols)
-        y = aligned[y_cols]
-        
-        return X, y
-            
-
-    def _save_csv_dataset(self, subfolder: str):
-        """
-        Saves the 4 datasets to CSV files in the specified folder.
-        """
-        full_path = os.path.join(self.folder_path, subfolder)
-        if not os.path.exists(full_path):
-            os.makedirs(full_path)
-
-        self.timeseries_df.to_csv(os.path.join(full_path, "timeseries.csv"), index=False)
-        self.path_related_df.to_csv(os.path.join(full_path, "path.csv"), index=False)
-        self.user_related_df.to_csv(os.path.join(full_path, "user.csv"), index=False)
-        self.target_df.to_csv(os.path.join(full_path, "target.csv"), index=False)
-        print(f"\nDatasets saved to: {full_path}")
-
-    def get_all_level_dataset(self, padding: bool = True) -> tuple[tuple[np.ndarray | list, np.ndarray, np.ndarray], np.ndarray, np.ndarray, dict]:
-        """
-        Returns datasets with all levels.
-
-        Handling Variable Timesteps:
-        If padding=True:
-            Time-series data (x_ts) is zero-padded to the maximum number of timesteps found across all user/path combinations.
-            Since x_ts is initialized with zeros, any timestep index beyond the actual length of a specific time-series remains 0.
-        If padding=False:
-            Returns a nested list structure for x_ts where dimensions vary.
-
-        X tuple: (x_ts, x_path, x_user)
-            1. x_ts: Time-Series Dataset
-                - Shape (padded): (n_samples, n_paths, n_timeseries, max_timesteps)
-                - Shape (unpadded): (n_timeseries, variable_timesteps)
-                - Values: (28, 20, 50, variable_timesteps)
-            2. x_path: Path-Level Dataset
-                - Shape: (n_samples, n_paths, n_path_features)
-                - Values: (28, 20, )
-            3. x_user: User-Level Dataset
-                - Shape: (n_samples, n_user_features)
-                - Values: (28, 3)
-
-        y: Targets
-            - Shape: (n_samples, n_targets)
-            - Values: (28, 14)
-        """
-        print(f"\nConstructing All-Level Dataset (padding={padding})...")
-
-        # 1. Identify Indexing
-        users = sorted(self.user_related_df['user'].unique())
-        n_users = len(users)
-        
-        unique_paths = sorted(self.path_related_df['path'].unique())
-        n_paths = len(unique_paths)
-
-        # 2. X User
-        user_df = self.user_related_df.set_index('user').reindex(users)
-        x_user = user_df.values.astype(np.float32)
-        user_feat_names = list(user_df.columns)
-
-        # 3. X Path
-        path_feat_cols = [c for c in self.path_related_df.columns if c not in ['user', 'path']]
-        n_path_feats = len(path_feat_cols)
-        
-        # Sort/Index to ensure shape (n_users, n_paths, n_features)
-        # Using multi-index reindexing to align strictly by (user, path)
-        path_df = self.path_related_df.set_index(['user', 'path'])
-        mi = pd.MultiIndex.from_product([users, unique_paths], names=['user', 'path'])
-        path_df_aligned = path_df.reindex(mi).fillna(0) # Fill missing paths with 0 if necessary
-        
-        # Reshape directly: (n_users * n_paths, n_features) -> (n_users, n_paths, n_features)
-        x_path = path_df_aligned[path_feat_cols].values.astype(np.float32)
-        x_path = x_path.reshape(n_users, n_paths, n_path_feats)
-        
-        # 4. X Time-Series
-        ts_feat_cols = [c for c in self.timeseries_df.columns if c not in ['user', 'path', 'time']]
-        n_ts_feats = len(ts_feat_cols)
-        
-        # Determine max dimension for static array allocation
-        # This defines the fixed size for the time dimension. Shorter series will be padded.
-        max_timesteps = self.timeseries_df.groupby(['user', 'path']).size().max()
-        
-        if padding:
-            # Shape: (n_users, n_paths, n_features, timesteps)
-            # Initialize with zeros. This automatically handles zero-padding for sequences shorter than max_timesteps.
-            x_ts = np.zeros((n_users, n_paths, n_ts_feats, max_timesteps), dtype=np.float32)
-        else:
-            # List of lists to hold variable length arrays
-            # Default to empty array (features, 0) if path is missing
-            x_ts = [[np.zeros((n_ts_feats, 0), dtype=np.float32) for _ in range(n_paths)] for _ in range(n_users)]
-        
-        user_map = {u: i for i, u in enumerate(users)}
-        path_map = {p: i for i, p in enumerate(unique_paths)}
-        
-        # Sort to ensure data chunks are contiguous if iterating
-        ts_df_sorted = self.timeseries_df.sort_values(by=['user', 'path', 'time'])
-        
-        for (u, p), group in ts_df_sorted.groupby(['user', 'path']):
-            if u in user_map and p in path_map:
-                u_idx = user_map[u]
-                p_idx = path_map[p]
-                
-                vals = group[ts_feat_cols].values.T # (features, timesteps)
-                
-                if padding:
-                    length = vals.shape[1]
-                    # Assign to correct slice. Elements from length to max_timesteps remain 0 (padding).
-                    x_ts[u_idx, p_idx, :, :length] = vals
-                else:
-                    x_ts[u_idx][p_idx] = vals
-
-        # 5. Y Targets
-        target_df = self.target_df.set_index('user').reindex(users)
-        y = target_df.values.astype(np.float32)
-        
-        feature_names = {
-            'ts': ts_feat_cols,
-            'path': path_feat_cols,
-            'user': user_feat_names
-        }
-
-        print(f"  x_ts shape: {x_ts.shape if padding else 'List (Variable Length)'} (Zero-padded to max length: {max_timesteps} if padding=True)")
-        print(f"  x_path shape: {x_path.shape}")
-        print(f"  x_user shape: {x_user.shape}")
-        print(f"  y shape: {y.shape}")
-
-        return (x_ts, x_path, x_user), y, np.array(users), feature_names
+        self.n_samples = self.y.shape[0]
 
     def __len__(self):
-        return self.length
+        return self.n_samples
 
     def __getitem__(self, idx):
-        return torch.tensor(self.X[idx]), torch.tensor(self.y[idx])
+        # Return tuple: (Features_Tuple, Target)
+        # Features Tuple: (Time Series, Path Features, User Features)
+        return (self.x_ts[idx], self.x_path[idx], self.x_user[idx]), self.y[idx]
     
-    
-class DatasetConv1s(Dataset):
-    def __init__(self, path: str = "/data/dataset_conv@1s", recreate: bool = False):
-        super().__init__(sampling_frequency=1, folder_path=path, recreate=recreate)
+    def get_all(self):
+        return (self.x_ts, self.x_path, self.x_user), self.y, self.users, self.feature_names
 
-class DatasetFreq1hzAugmentedx4(Dataset):
-    def __init__(self, path: str = "/data/dataset_conv@1s/augmentedx4", recreate: bool = False):
-        super().__init__(sampling_frequency=1, folder_path=path, recreate=recreate)
+    def create_augmented_dataset(self, augmentation_ratio: int):
+        """
+        Placeholder for data augmentation logic.
+        Should update self.x_* tensors in place or extend them.
+        """
+        print(f"Placeholder: Creating augmented dataset with ratio {augmentation_ratio}...")
+        # Implementation to follow
+        pass
 
-class DatasetFreq2hz(Dataset):
-    def __init__(self, path: str = "/data/dataset_conv@2hz", recreate: bool = False):
-        super().__init__(sampling_frequency=2, folder_path=path, recreate=recreate)
+    def perform_feature_selection(self, method: str = 'lars', **kwargs):
+        """
+        Placeholder for feature selection logic.
+        Should slice self.x_path or self.x_ts features.
+        """
+        print(f"Placeholder: Performing feature selection using {method}...")
+        # Implementation to follow
+        pass
 
-class DatasetFreq2hzAugmentedx4(Dataset):
-    def __init__(self, path: str = "/data/dataset_conv@2hz/augmentedx4", recreate: bool = False):
-        super().__init__(sampling_frequency=2, folder_path=path, recreate=recreate)
 
 if __name__ == "__main__":
-    # dataset = Dataset(sampling_frequency=2, folder_path="/data/test", recreate=True)
-    dataset = DatasetFreq2hz(recreate=False)
-    dataset.create_augmented_dataset(augmentation_ratio=4, subfolder="augmentedx4")
-    # --> DatasetFreq2hzAugmentedx4
+    # Example usage
+    prepare_and_split_data(
+        numpy_folder_name="timeseries_numpy_processed",
+        input_root="/data/raw",
+        output_root="/data",
+        test_user_ids=[14, 19, 27]  # most average test users by normative values from IfSS
+    )
     
-    # dataset.target_and_feature_selection(
-    #     selected_targets=['Balance Test', 'Single Leg Stance', 'Hand Grip Right', 'Throwing Beanbag at Target'],
-    #     apply_lars=True,
-    #     max_n_timeseries=40,
-    #     max_n_path_features=10,
-    #     max_n_extracted_ts_features=100
-    # )
-    # dataset.get_all_level_dataset(padding=True)
+    dataset = AssessmentDataset("/data/train")
+    print(f"Loaded dataset with {len(dataset)} samples.")

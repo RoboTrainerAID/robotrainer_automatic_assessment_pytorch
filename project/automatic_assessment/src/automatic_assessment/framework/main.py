@@ -20,7 +20,7 @@ from automatic_assessment.framework.models.hierarchical_attention_gemini_22_LSTM
 import automatic_assessment.framework.models.simple_models as simple_models
 from automatic_assessment.framework.reporting.saving import SavingModule
 from automatic_assessment.framework.reporting.visualization import VisualizationModule
-from automatic_assessment.framework.data.dataset import DatasetConv1s, DatasetFreq1hzAugmentedx4, DatasetFreq2hzAugmentedx4, DatasetFreq2hz
+from automatic_assessment.framework.data.dataset import AssessmentDataset
 
 
 def main():
@@ -39,19 +39,18 @@ def main():
 
     # X tuple: (x_ts, x_path, x_user)
     #     1. x_ts: Time-Series Dataset
-    #         - Shape (padded): (n_samples, n_paths, n_timeseries, max_timesteps)
-    #         - Shape (unpadded): (n_samples, n_paths, n_timeseries, variable_timesteps)
-    #         - Values: (135, 20, 35, variable_timesteps)
+    #         - Shape (variable): (n_samples, n_paths, n_timeseries, variable_length)
+    #         - Values: (25, 20, 32, variable_timesteps)
     #     2. x_path: Path-Level Dataset
     #         - Shape: (n_samples, n_paths, n_path_features)
-    #         - Values: (135, 20, 105)
+    #         - Values: (25, 20, 73)
     #     3. x_user: User-Level Dataset
     #         - Shape: (n_samples, n_user_features)
-    #         - Values: (135, 2)
+    #         - Values: (25, 2)
 
     # y: Targets
     #     - Shape: (n_samples, n_targets)
-    #     - Values: (135, 4)
+    #     - Values: (25, 14)
 
     all = [
         'Balance Test', 'Single Leg Stance', 'Robotrainer Front', 'Robotrainer Left', 
@@ -64,40 +63,33 @@ def main():
     singles_list = [[label] for label in all]
 
     # List of different target combinations
-    targets_to_test = [clusters] + singles_list
+    # targets_to_test = [clusters] + singles_list
     # targets_to_test = [all, clusters] + singles_list
-    # targets_to_test = [clusters]  # For quick testing
+    targets_to_test = [clusters]  # For quick testing
 
     # augmentation_range = [0, 1, 2, 3, 4, 5]
     augmentation_range = [3]
 
     for ratio in augmentation_range:
         print(f"Creating augmented dataset with ratio: {ratio}")
-        # TODO: When dataset is created here the .target_and_feature_selection later on fails due to missing features in the augmented dataset
-        # dataset = DatasetFreq2hz(recreate=False)
-        # dataset.create_augmented_dataset(augmentation_ratio=ratio, subfolder="new_augmentedx" + str(ratio))
+        
+        # Note: Augmentation logic is currently a placeholder in dataset.py
+        # dataset.create_augmented_dataset(ratio)
 
         for target_set in targets_to_test:
             print(f"\n\n=== Selecting Targets: {target_set} ===\n")
 
-            # dataset = DatasetFreq2hzAugmentedx4(recreate=False)
-            dataset = DatasetFreq2hz(recreate=False)
-            dataset.create_augmented_dataset(augmentation_ratio=ratio, subfolder="new_augmentedx" + str(ratio))
-
-            # TODO: Fix that this is not modifying the original dataset and removes targets for later loops
-            dataset.target_and_feature_selection(
-                selected_targets=target_set,
-                apply_lars=True,
-                max_n_timeseries=40,
-                max_n_path_features=10,
-                max_n_extracted_ts_features=100
-            )
-            X, y, users, _ = dataset.get_all_level_dataset(padding=True)
-        
+            # Load the prepared training split
+            dataset = AssessmentDataset("/data/train")
+            X, y, users, feature_names = dataset.get_all()
+            
+            # TODO: Implement target filtering based on 'target_set' here or in dataset class
+            # Currently using all targets loaded from CSV
+            
             config = {
                 "epochs": 50,
-                "hyperparameter_mode": 'optimize_once', # 'default', 'optimize_once', 'optimize_every_fold'
-                "only_first_fold": False,  # For quick testing
+                "hyperparameter_mode": 'default', # 'default', 'optimize_once', 'optimize_every_fold'
+                "only_first_fold": True,  # For quick testing
                 "n_trials": 50,  # Number of Optuna trials
                 "use_lasso": False, 
                 "max_n_features": 20,
@@ -108,6 +100,7 @@ def main():
             
             # List of models to test
             # models_to_test = [SimpleMLP, CNN1D, HierarchicalCNN, HierarchicalAttentionNetwork
+            models_to_test = [SimpleMLP]
             # models_to_test = [HierarchicalTimeseriesChatGPT] 
             # models_to_test = [HierarchicalTimeseriesGemini]
             # models_to_test = [HierarchicalTimeseriesGemini2, HierarchicalTimeseriesGemini1, HierarchicalTimeseriesChatGPTHyper]
@@ -115,7 +108,7 @@ def main():
             # models_to_test = [HierarchicalTimeseriesGemini21, HierarchicalTimeseriesLSTM]
             # models_to_test = [HierarchicalTimeseriesLSTM]
             # models_to_test = [simple_models.ElasticNetModel, simple_models.LinearRegressionModel, simple_models.RandomForestLikeMLP, simple_models.SimpleMLPRegressor]
-            models_to_test = [HierarchicalTimeseriesGemini21, HierarchicalTimeseriesLSTM, simple_models.ElasticNetModel, simple_models.LinearRegressionModel, simple_models.RandomForestLikeMLP, simple_models.SimpleMLPRegressor]
+            # models_to_test = [HierarchicalTimeseriesGemini21, HierarchicalTimeseriesLSTM, simple_models.ElasticNetModel, simple_models.LinearRegressionModel, simple_models.RandomForestLikeMLP, simple_models.SimpleMLPRegressor]
             
             for model_class in models_to_test:
                 model_name = model_class.model_name
@@ -127,7 +120,8 @@ def main():
                 saver = SavingModule(model_name=f"{model_name}")
                 saver.save_model_source(model_class)
 
-                results = pipeline.run_nested_cv(X, y, users)
+                results = pipeline.run_simple_tuning(X, y, users)
+                # results = pipeline.run_nested_cv(X, y, users)
                 
                 saver.save_results(results)
 

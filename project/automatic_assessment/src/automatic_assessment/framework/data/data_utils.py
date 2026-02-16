@@ -1,21 +1,6 @@
 import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader, TensorDataset
-
-class PytorchDataset(Dataset):
-    def __init__(self, X: torch.tensor, y: torch.tensor):
-        """
-        X: torch.tensor (N, Time, Features)
-        y: torch.tensor (N, Targets)
-        """
-        self.X = X
-        self.y = y
-
-    def __len__(self):
-        return len(self.X)
-
-    def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
+from torch.utils.data import DataLoader, TensorDataset
 
 def get_dataloader(*tensors, batch_size, shuffle=True):
     """

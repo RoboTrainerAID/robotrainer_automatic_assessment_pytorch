@@ -60,5 +60,5 @@ def main():
     dataset.save("/data/raw/timeseries_numpy_processed")
     
 if __name__ == "__main__":
-    # main()
+    main()
     create_features_csv()

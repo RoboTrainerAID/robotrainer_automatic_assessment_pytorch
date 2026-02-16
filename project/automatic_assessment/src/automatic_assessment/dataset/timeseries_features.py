@@ -136,6 +136,11 @@ class TimeseriesFeatureExtractor:
                         if len(timestamps) > 1:
                             dt = np.mean(np.diff(timestamps))
                             val = np.sum(values**2) * dt
+                        else:
+                            # print("## energy ##")
+                            # print(f"Warning: Not enough timestamps to compute energy for {cleaned_name}.")
+                            # print(f"  Timestamps: {timestamps}")
+                            val = 0.0
                             
                     elif f_name in ["integral", "impulse", "work", "total_distance"]:
                         # Signed Integral: Area under curve
@@ -144,6 +149,11 @@ class TimeseriesFeatureExtractor:
                         if len(timestamps) > 1:
                             dt = np.mean(np.diff(timestamps))
                             val = np.sum(values) * dt
+                        else:
+                            # print("## integral ##")
+                            # print(f"Warning: Not enough timestamps to compute integral for {cleaned_name}.")
+                            # print(f"  Timestamps: {timestamps}")
+                            val = 0.0
                             
                     elif f_name in ["absolute_integral"]:
                         # Absolute Integral: Area under absolute curve
@@ -151,6 +161,11 @@ class TimeseriesFeatureExtractor:
                         if len(timestamps) > 1:
                             dt = np.mean(np.diff(timestamps))
                             val = np.sum(np.abs(values)) * dt
+                        else:
+                            # print("## absolute_integral ##")
+                            # print(f"Warning: Not enough timestamps to compute absolute integral for {cleaned_name}.")
+                            # print(f"  Timestamps: {timestamps}")
+                            val = 0.0
 
                     elif f_name == "rms_diff":
                         # Smoothness proxy
@@ -190,7 +205,8 @@ class TimeseriesFeatureExtractor:
             vals_a, vals_b, fs = self._synchronize_signals(arr_a, arr_b)
 
             if len(vals_a) < 3:
-                feat_dict[out_key] = np.nan
+                # feat_dict[out_key] = np.nan
+                feat_dict[out_key] = 0.0
                 continue
 
             try:
@@ -200,8 +216,11 @@ class TimeseriesFeatureExtractor:
                 else:
                     corr, _ = pearsonr(vals_a, vals_b)
                 feat_dict[out_key] = corr
-            except Exception:
+            except Exception as e:
                 feat_dict[out_key] = np.nan
+                print(f"Warning: Correlation computation failed for {out_key}.")
+                print(f"  Error: {e}")
+
 
         return feat_dict
 
@@ -226,7 +245,8 @@ class TimeseriesFeatureExtractor:
             vals_a, vals_b, fs = self._synchronize_signals(arr_a, arr_b)
             
             if len(vals_a) < 10 or fs is None:
-                feat_dict[out_key] = np.nan
+                # feat_dict[out_key] = np.nan
+                feat_dict[out_key] = 0.0
                 continue
                 
             # 2. Normalize (Zero Mean) - Vital for cross-correlation
@@ -307,7 +327,8 @@ class TimeseriesFeatureExtractor:
 
     def _feat_band_power(self, values: np.ndarray, fs: float, band: tuple) -> float:
         """Calculates Average Spectral Power in a frequency band using Welch's method."""
-        if fs <= 0: return np.nan
+        # if fs <= 0: return np.nan
+        if fs <= 0: return 0.0
         
         # Welch's method
         nperseg = min(len(values), 256)

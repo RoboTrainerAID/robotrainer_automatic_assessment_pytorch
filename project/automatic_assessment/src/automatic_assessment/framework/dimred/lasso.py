@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LassoCV, MultiTaskLassoCV
 from typing import List, Tuple
 
-from automatic_assessment.framework.data.dataset import DatasetConv1s
+# from automatic_assessment.framework.data.dataset import DatasetConv1s
 
 def select_features(X_train_mean: np.ndarray, y_train_scaled: np.ndarray, n_features: int = 20) -> tuple[np.ndarray, np.ndarray]:
         """LASSO Feature Selection: Returns top n_features."""

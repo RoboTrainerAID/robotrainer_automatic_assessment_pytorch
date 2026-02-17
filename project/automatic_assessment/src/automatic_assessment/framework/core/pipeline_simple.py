@@ -246,8 +246,6 @@ class SimplePipeline:
 
             trainer.cleanup()
             del trainer
-            gc.collect()
-            torch.cuda.empty_cache()
             
         val_metrics = calculate_metrics(all_val_preds, all_val_actuals, prefix="val")
         loss = float(np.mean(all_val_losses))

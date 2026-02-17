@@ -28,13 +28,54 @@ class Trainer:
         self.scheduler_class = torch.optim.lr_scheduler.CosineAnnealingLR
         self.eta_min = params.get('eta_min', 1e-7)
 
+    def _to_device(self, data):
+        if isinstance(data, (list, tuple)):
+            return [x.to(self.device, non_blocking=True) for x in data]
+        return data.to(self.device, non_blocking=True)
+
     def train_model(self, X_train: tuple, y_train: torch.Tensor, epochs: int) -> None:
-        train_loader = get_dataloader(*X_train, y_train, batch_size=self.params.get('batch_size', 16))
-        scheduler = self.scheduler_class(self.optimizer, T_max=epochs, eta_min=self.eta_min)
-        
-        for _ in range(epochs):
-            self.train_epoch(train_loader)
-            scheduler.step()
+        # Optimization: Move entire dataset to GPU once for small datasets
+        # Check size roughly. If < 100MB/GBs, move it. Here typical assessment data is small.
+        try:
+            X_train_gpu = self._to_device(X_train)
+            y_train_gpu = self._to_device(y_train)
+            
+            scheduler = self.scheduler_class(self.optimizer, T_max=epochs, eta_min=self.eta_min)
+            batch_size = self.params.get('batch_size', 16)
+            n_samples = y_train.shape[0]
+
+            self.model.train()
+            
+            for _ in range(epochs):
+                # Simple permutation for shuffle
+                indices = torch.randperm(n_samples, device=self.device)
+                
+                for start_idx in range(0, n_samples, batch_size):
+                    batch_idx = indices[start_idx:start_idx + batch_size]
+                    
+                    # Slice on GPU
+                    batch_inputs = [x[batch_idx] for x in X_train_gpu]
+                    batch_y = y_train_gpu[batch_idx]
+
+                    if hasattr(self.model, "update_running_mean"):
+                        self.model.update_running_mean(batch_y)
+
+                    self.optimizer.zero_grad()
+                    pred = self.model(batch_inputs)
+                    loss = self.criterion(pred, batch_y)
+                    
+                    loss.backward()
+                    self.optimizer.step()
+                
+                scheduler.step()
+                
+        except RuntimeError: # OOM Fallback to DataLoader
+            train_loader = get_dataloader(*X_train, y_train, batch_size=self.params.get('batch_size', 16))
+            scheduler = self.scheduler_class(self.optimizer, T_max=epochs, eta_min=self.eta_min)
+            print("WARNING: Dataset too large for GPU, falling back to DataLoader with batch-wise training.")
+            for _ in range(epochs):
+                self.train_epoch(train_loader)
+                scheduler.step()
 
     def train_model_and_evaluate_every_epoch(self, X_train: tuple, y_train: torch.Tensor, epochs: int, X_val: tuple, y_val: torch.Tensor) -> dict:
         train_loader = get_dataloader(*X_train, y_train, batch_size=self.params.get('batch_size', 16))
@@ -55,8 +96,21 @@ class Trainer:
         return history
 
     def evaluate_model(self, X: tuple, y: torch.Tensor) -> tuple[float, np.ndarray, np.ndarray]:
-        loader = get_dataloader(*X, y, batch_size=len(y), shuffle=False)
-        return self.evaluate(loader)
+        # Optimization: Full batch evaluation on GPU if possible
+        self.model.eval()
+        try:
+            with torch.no_grad():
+                X_gpu = self._to_device(X)
+                y_gpu = self._to_device(y)
+                
+                # If dataset is huge, this might OOM, but for validation/test sets usually okay
+                pred = self.model(X_gpu)
+                loss = self.criterion(pred, y_gpu).item()
+                
+                return loss, pred.cpu().numpy(), y_gpu.cpu().numpy()
+        except RuntimeError: # Fallback
+            loader = get_dataloader(*X, y, batch_size=len(y), shuffle=False)
+            return self.evaluate(loader)
 
     def train_epoch(self, loader) -> float:
         self.model.train()

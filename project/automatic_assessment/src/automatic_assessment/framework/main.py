@@ -4,27 +4,27 @@ import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
 
 from automatic_assessment.framework.core.pipeline import Pipeline
-from automatic_assessment.framework.models.cnn1d import CNN1D
-from automatic_assessment.framework.models.hierarchical_cnn import HierarchicalCNN
-from automatic_assessment.framework.models.mlp import SimpleMLP
-from automatic_assessment.framework.models.hierarchical_attention import HierarchicalAttentionNetwork
-from automatic_assessment.framework.models.hierarchical_attention_chatgpt import HierarchicalTimeseriesChatGPT
-from automatic_assessment.framework.models.hierarchical_attention_chatgpt_hyper import HierarchicalTimeseriesChatGPT as HierarchicalTimeseriesChatGPTHyper
-from automatic_assessment.framework.models.hierarchical_attention_gemini import HierarchicalTimeseriesGemini
-from automatic_assessment.framework.models.hierarchical_attention_gemini_1 import HierarchicalTimeseriesGemini1
-from automatic_assessment.framework.models.hierarchical_attention_gemini_2 import HierarchicalTimeseriesGemini2
-from automatic_assessment.framework.models.hierarchical_attention_gemini_3 import HierarchicalTimeseriesGemini3
-from automatic_assessment.framework.models.hierarchical_attention_gemini_21 import HierarchicalTimeseriesGemini21
-from automatic_assessment.framework.models.hierarchical_attention_gemini_22 import HierarchicalTimeseriesGemini22
-from automatic_assessment.framework.models.hierarchical_attention_gemini_22_LSTM import HierarchicalTimeseriesLSTM
+from automatic_assessment.framework.models.timeseries.cnn1d import CNN1D
+from automatic_assessment.framework.models.timeseries.hierarchical_cnn import HierarchicalCNN
+from automatic_assessment.framework.models.timeseries.mlp import SimpleMLP
+from automatic_assessment.framework.models.timeseries.hierarchical_attention import HierarchicalAttentionNetwork
+from automatic_assessment.framework.models.timeseries.hierarchical_attention_chatgpt import HierarchicalTimeseriesChatGPT
+from automatic_assessment.framework.models.timeseries.hierarchical_attention_chatgpt_hyper import HierarchicalTimeseriesChatGPT as HierarchicalTimeseriesChatGPTHyper
+from automatic_assessment.framework.models.timeseries.hierarchical_attention_gemini import HierarchicalTimeseriesGemini
+from automatic_assessment.framework.models.timeseries.hierarchical_attention_gemini_1 import HierarchicalTimeseriesGemini1
+from automatic_assessment.framework.models.timeseries.hierarchical_attention_gemini_2 import HierarchicalTimeseriesGemini2
+from automatic_assessment.framework.models.timeseries.hierarchical_attention_gemini_3 import HierarchicalTimeseriesGemini3
+from automatic_assessment.framework.models.timeseries.hierarchical_attention_gemini_21 import HierarchicalTimeseriesGemini21
+from automatic_assessment.framework.models.timeseries.hierarchical_attention_gemini_22 import HierarchicalTimeseriesGemini22
+from automatic_assessment.framework.models.timeseries.hierarchical_attention_gemini_22_LSTM import HierarchicalTimeseriesLSTM
 import automatic_assessment.framework.models.simple_models as simple_models
 from automatic_assessment.framework.reporting.saving import SavingModule
 from automatic_assessment.framework.reporting.visualization import VisualizationModule
-from automatic_assessment.framework.data.dataset import AssessmentDataset
+from automatic_assessment.archiv.dataset_old import DatasetFreq2hz
 
 
 def main():
-    # dataset = DatasetFreq2hz(recreate=False)
+    dataset = DatasetFreq2hz(recreate=False)
     # dataset.create_augmented_dataset(augmentation_ratio=4, subfolder="augmentedx4")
     # dataset = DatasetFreq2hzAugmentedx4(recreate=False)
 
@@ -73,18 +73,12 @@ def main():
     for ratio in augmentation_range:
         print(f"Creating augmented dataset with ratio: {ratio}")
         
-        # Note: Augmentation logic is currently a placeholder in dataset.py
-        # dataset.create_augmented_dataset(ratio)
+        dataset.create_augmented_dataset(ratio)
 
         for target_set in targets_to_test:
             print(f"\n\n=== Selecting Targets: {target_set} ===\n")
 
-            # Load the prepared training split
-            dataset = AssessmentDataset("/data/train")
-            X, y, users, feature_names = dataset.get_all()
-            
-            # TODO: Implement target filtering based on 'target_set' here or in dataset class
-            # Currently using all targets loaded from CSV
+            X, y, users, feature_names = dataset.get_all_level_dataset(padding=True)
             
             config = {
                 "epochs": 50,
@@ -100,7 +94,6 @@ def main():
             
             # List of models to test
             # models_to_test = [SimpleMLP, CNN1D, HierarchicalCNN, HierarchicalAttentionNetwork
-            models_to_test = [SimpleMLP]
             # models_to_test = [HierarchicalTimeseriesChatGPT] 
             # models_to_test = [HierarchicalTimeseriesGemini]
             # models_to_test = [HierarchicalTimeseriesGemini2, HierarchicalTimeseriesGemini1, HierarchicalTimeseriesChatGPTHyper]
@@ -108,7 +101,7 @@ def main():
             # models_to_test = [HierarchicalTimeseriesGemini21, HierarchicalTimeseriesLSTM]
             # models_to_test = [HierarchicalTimeseriesLSTM]
             # models_to_test = [simple_models.ElasticNetModel, simple_models.LinearRegressionModel, simple_models.RandomForestLikeMLP, simple_models.SimpleMLPRegressor]
-            # models_to_test = [HierarchicalTimeseriesGemini21, HierarchicalTimeseriesLSTM, simple_models.ElasticNetModel, simple_models.LinearRegressionModel, simple_models.RandomForestLikeMLP, simple_models.SimpleMLPRegressor]
+            models_to_test = [HierarchicalTimeseriesGemini21, HierarchicalTimeseriesLSTM, simple_models.ElasticNetModel, simple_models.LinearRegressionModel, simple_models.RandomForestLikeMLP, simple_models.SimpleMLPRegressor]
             
             for model_class in models_to_test:
                 model_name = model_class.model_name
@@ -120,8 +113,7 @@ def main():
                 saver = SavingModule(model_name=f"{model_name}")
                 saver.save_model_source(model_class)
 
-                results = pipeline.run_simple_tuning(X, y, users)
-                # results = pipeline.run_nested_cv(X, y, users)
+                results = pipeline.run_nested_cv(X, y, users)
                 
                 saver.save_results(results)
 

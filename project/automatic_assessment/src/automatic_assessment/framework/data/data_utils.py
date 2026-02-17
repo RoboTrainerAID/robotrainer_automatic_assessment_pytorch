@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
+from sklearn.preprocessing import StandardScaler
 
 def get_dataloader(*tensors, batch_size, shuffle=True):
     """
@@ -19,6 +20,69 @@ def get_dataloader(*tensors, batch_size, shuffle=True):
         shuffle=shuffle, 
         pin_memory=True 
     )
+
+def slice_data(X: tuple, indices: np.ndarray) -> tuple:
+    """Helper to slice tuple of arrays."""
+    return tuple(x[indices] for x in X)
+
+def prepare_fold_data(X_t: tuple, y_t, X_v: tuple, y_v) -> tuple:
+    """Helper to handle scaling within the CV loop."""        
+    scaler_y = StandardScaler()
+    
+    # Ensure y is numpy for fit_transform (handles tensors if passed)
+    y_t_np = y_t.cpu().numpy() if isinstance(y_t, torch.Tensor) else y_t
+    y_v_np = y_v.cpu().numpy() if isinstance(y_v, torch.Tensor) else y_v
+
+    yt_s = torch.FloatTensor(scaler_y.fit_transform(y_t_np))
+    yv_s = torch.FloatTensor(scaler_y.transform(y_v_np))
+    feat_idx = None
+
+    # Structure: (x_ts, x_path, x_user)
+    # 1. X_TS (N, P, F, T) -> Scale Per feature F across N, P, T
+    xt_ts, xv_ts = X_t[0], X_v[0]
+    N, P, F, T = xt_ts.shape
+    
+    # Handle both Tensor and Numpy inputs for reshaping/transposing
+    # if isinstance(xt_ts, torch.Tensor):
+    xt_ts_flat = xt_ts.permute(0,1,3,2).reshape(-1, F).cpu().numpy()
+    xv_ts_flat = xv_ts.permute(0,1,3,2).reshape(-1, F).cpu().numpy()
+    # else:
+    #     xt_ts_flat = xt_ts.transpose(0,1,3,2).reshape(-1, F)
+    #     xv_ts_flat = xv_ts.transpose(0,1,3,2).reshape(-1, F)
+    
+    scaler_ts = StandardScaler()
+    # Scaling - returns numpy
+    xt_ts_s = scaler_ts.fit_transform(xt_ts_flat).reshape(N, P, T, F).transpose(0,1,3,2)
+    xv_ts_s = scaler_ts.transform(xv_ts_flat).reshape(xv_ts.shape[0], P, T, F).transpose(0,1,3,2)
+    
+    # 2. X_PATH (N, P, Fp) -> Scale Per feature Fp across N, P
+    xt_path, xv_path = X_t[1], X_v[1]
+    if isinstance(xt_path, torch.Tensor):
+        xt_path = xt_path.cpu().numpy()
+        xv_path = xv_path.cpu().numpy()
+
+    N, P, Fp = xt_path.shape
+    xt_path_flat = xt_path.reshape(-1, Fp)
+    xv_path_flat = xv_path.reshape(-1, Fp)
+    
+    scaler_path = StandardScaler()
+    xt_path_s = scaler_path.fit_transform(xt_path_flat).reshape(N, P, Fp)
+    xv_path_s = scaler_path.transform(xv_path_flat).reshape(xv_path.shape[0], P, Fp)
+    
+    # 3. X_USER (N, Fu) -> Scale Per feature Fu across N
+    xt_user, xv_user = X_t[2], X_v[2]
+    if isinstance(xt_user, torch.Tensor):
+        xt_user = xt_user.cpu().numpy()
+        xv_user = xv_user.cpu().numpy()
+
+    scaler_user = StandardScaler()
+    xt_user_s = scaler_user.fit_transform(xt_user)
+    xv_user_s = scaler_user.transform(xv_user)
+
+    Xt_final = (torch.FloatTensor(xt_ts_s), torch.FloatTensor(xt_path_s), torch.FloatTensor(xt_user_s))
+    Xv_final = (torch.FloatTensor(xv_ts_s), torch.FloatTensor(xv_path_s), torch.FloatTensor(xv_user_s))
+    
+    return Xt_final, yt_s, Xv_final, yv_s, scaler_y, feat_idx
 
 def get_root_groups(users):
     """

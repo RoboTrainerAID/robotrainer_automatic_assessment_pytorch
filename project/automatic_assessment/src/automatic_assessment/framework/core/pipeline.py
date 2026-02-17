@@ -8,7 +8,7 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from automatic_assessment.framework.core.trainer import Trainer
-from automatic_assessment.framework.data.data_utils import AugmentedLOGO
+from automatic_assessment.framework.data.data_utils import AugmentedLOGO, prepare_fold_data, slice_data
 from automatic_assessment.framework.dimred.lasso import select_features
 from automatic_assessment.framework.reporting.metrics import calculate_metrics
 from automatic_assessment.framework.utils.time_utils import start_timer, stop_timer
@@ -20,7 +20,13 @@ class Pipeline:
         self.config = config
 
     def run_nested_cv(self, X: tuple, y: np.ndarray, users: np.ndarray) -> dict:
+        """
+        Runs Nested Leave-One-Group-Out Cross Validation (Strategy A).
+        Splits data into Outer Folds (Validation/Test) and Inner Folds (Hyperparameter Tuning).
+        Results are statistically unbiased estimates of generalization performance.
+        """
         start_dt, start_perf = start_timer()
+        hyperparameter_mode = self.config.get('hyperparameter_mode', 'default')
 
         # Capture Input Shapes
         input_info = {
@@ -34,7 +40,6 @@ class Pipeline:
         # Use custom outer LOGO splitter to handle augmented data (Test on Real, remove augmented clones from Train)
         outer_splitter = AugmentedLOGO(include_augmented_in_test=False)
         splits = list(outer_splitter.split(groups=users))
-        hyperparameter_mode = self.config.get('hyperparameter_mode', 'default')
         
         cached_best_params = None
         fold_data = [] # List storing data for each fold
@@ -51,8 +56,8 @@ class Pipeline:
         self.model_class.print_summary(X, y)
 
         for fold_idx, (train_idx, test_idx) in enumerate(tqdm(splits, desc="Outer Nested CV")):
-            X_t = self._slice_data(X, train_idx)
-            X_test = self._slice_data(X, test_idx)
+            X_t = slice_data(X, train_idx)
+            X_test = slice_data(X, test_idx)
             y_t, y_test = y[train_idx], y[test_idx]
             users_t = users[train_idx]
             
@@ -63,7 +68,7 @@ class Pipeline:
                 tqdm.write(f"[Outer Fold 0] Train Users ({len(train_users_unique)}): {train_users_unique}")
 
             # --- 1. Scale and Select Features (On Outer Train) ---
-            Xt_s, yt_s, Xtest_s, ytest_s, scaler_y, feat_idx = self._prepare_fold_data(X_t, y_t, X_test, y_test)
+            Xt_s, yt_s, Xtest_s, ytest_s, scaler_y, feat_idx = prepare_fold_data(X_t, y_t, X_test, y_test)
 
             # --- 2. Hyperparameter Determination (Inner Loop) ---
             current_params = None
@@ -160,7 +165,8 @@ class Pipeline:
             "start_time": start_time_str,
             "duration": duration_str,
             "input_shapes": input_info,
-            "total_model_parameters": model_total_params
+            "total_model_parameters": model_total_params,
+            "strategy": "nested_cv"
         }
 
         # --- 5. Test Metric Calculation ---
@@ -199,11 +205,7 @@ class Pipeline:
         
         return final_results
 
-    def _slice_data(self, X: tuple, indices: np.ndarray) -> tuple:
-        """Helper to slice tuple of arrays."""
-        return tuple(x[indices] for x in X)
-
-    def _optimize_hyperparameters(self, X: tuple, y: torch.Tensor, users: np.ndarray) -> tuple[dict, float, dict, object, dict]:
+    def _optimize_hyperparameters(self, X: tuple, y: torch.Tensor, users: np.ndarray, scale_data: bool = False) -> tuple[dict, float, dict, object, dict]:
         """Runs Optuna optimization using Inner LOGO."""
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         n_trials = self.config.get('n_trials', 30)
@@ -216,7 +218,7 @@ class Pipeline:
                 params = self.model_class.get_hyperparameter_space(trial)
                 
                 # Evaluate using Inner CV
-                val_loss, val_metrics = self._evaluate_params_cv(X, y, users, params)
+                val_loss, val_metrics = self._evaluate_params_cv(X, y, users, params, scale_data=scale_data)
                 
                 # Store additional metrics in the trial for later retrieval
                 trial.set_user_attr("val_metrics", val_metrics)
@@ -237,7 +239,7 @@ class Pipeline:
 
         return study.best_params, study.best_trial.value, best_val_metrics, study.trials_dataframe(), importances
 
-    def _evaluate_params_cv(self, X: tuple, y: torch.Tensor, users, params) -> tuple[float, dict]:
+    def _evaluate_params_cv(self, X: tuple, y: torch.Tensor, users, params, scale_data: bool = False) -> tuple[float, dict]:
         """Runs LOGO CV on the provided data with given params."""
         logo = AugmentedLOGO(include_augmented_in_test=False)
         all_val_preds = []
@@ -248,18 +250,25 @@ class Pipeline:
         splits = list(logo.split(groups=users))
         
         for fold_idx, (train_idx, val_idx) in enumerate(tqdm(splits, desc="Inner Nested CV", leave=False)):
-            X_t = self._slice_data(X, train_idx)
-            X_v = self._slice_data(X, val_idx)
+            X_t = slice_data(X, train_idx)
+            X_v = slice_data(X, val_idx)
             y_t, y_v = y[train_idx], y[val_idx]
             
-            # Determine Input Dims
-            input_dims = self.model_class.get_input_dims(X_t)
+            if scale_data:
+                # If data is raw (Strategy B), we must scale per fold to avoid leakage
+                Xt_scaled, yt_scaled, Xv_scaled, yv_scaled, _, _ = prepare_fold_data(X_t, y_t, X_v, y_v)
+            else:
+                # If data is already scaled (Strategy A inner loop), use as is
+                Xt_scaled, yt_scaled, Xv_scaled, yv_scaled = X_t, y_t, X_v, y_v
 
-            trainer = Trainer(self.model_class, input_dims, y_t.shape[1], params)
-            trainer.train_model(X_t, y_t, epochs=self.config.get('epochs', 50))
+            # Determine Input Dims
+            input_dims = self.model_class.get_input_dims(Xt_scaled)
+
+            trainer = Trainer(self.model_class, input_dims, yt_scaled.shape[1], params)
+            trainer.train_model(Xt_scaled, yt_scaled, epochs=self.config.get('epochs', 50))
             
             # Validate
-            val_loss, val_preds, val_actuals = trainer.evaluate_model(X_v, y_v)
+            val_loss, val_preds, val_actuals = trainer.evaluate_model(Xv_scaled, yv_scaled)
             
             # Accumulate
             all_val_preds.append(val_preds)
@@ -277,46 +286,3 @@ class Pipeline:
         loss = float(np.mean(all_val_losses))
             
         return loss, val_metrics
-
-    def _prepare_fold_data(self, X_t: tuple, y_t, X_v: tuple, y_v) -> tuple:
-        """Helper to handle scaling and LASSO within the CV loop."""        
-        scaler_y = StandardScaler()
-        yt_s = torch.FloatTensor(scaler_y.fit_transform(y_t))
-        yv_s = torch.FloatTensor(scaler_y.transform(y_v))
-        feat_idx = None
-
-        # Structure: (x_ts, x_path, x_user)
-        # 1. X_TS (N, P, F, T) -> Scale Per feature F across N, P, T
-        xt_ts, xv_ts = X_t[0], X_v[0]
-        N, P, F, T = xt_ts.shape
-        
-        # Reshape to flatten N, P, T -> (N*P*T, F) assuming scaling per feature
-        # Transpose to put F last
-        xt_ts_flat = xt_ts.transpose(0,1,3,2).reshape(-1, F)
-        xv_ts_flat = xv_ts.transpose(0,1,3,2).reshape(-1, F)
-        
-        scaler_ts = StandardScaler()
-        # Scaling
-        xt_ts_s = scaler_ts.fit_transform(xt_ts_flat).reshape(N, P, T, F).transpose(0,1,3,2)
-        xv_ts_s = scaler_ts.transform(xv_ts_flat).reshape(xv_ts.shape[0], P, T, F).transpose(0,1,3,2)
-        
-        # 2. X_PATH (N, P, Fp) -> Scale Per feature Fp across N, P
-        xt_path, xv_path = X_t[1], X_v[1]
-        N, P, Fp = xt_path.shape
-        xt_path_flat = xt_path.reshape(-1, Fp)
-        xv_path_flat = xv_path.reshape(-1, Fp)
-        
-        scaler_path = StandardScaler()
-        xt_path_s = scaler_path.fit_transform(xt_path_flat).reshape(N, P, Fp)
-        xv_path_s = scaler_path.transform(xv_path_flat).reshape(xv_path.shape[0], P, Fp)
-        
-        # 3. X_USER (N, Fu) -> Scale Per feature Fu across N
-        xt_user, xv_user = X_t[2], X_v[2]
-        scaler_user = StandardScaler()
-        xt_user_s = scaler_user.fit_transform(xt_user)
-        xv_user_s = scaler_user.transform(xv_user)
-
-        Xt_final = (torch.FloatTensor(xt_ts_s), torch.FloatTensor(xt_path_s), torch.FloatTensor(xt_user_s))
-        Xv_final = (torch.FloatTensor(xv_ts_s), torch.FloatTensor(xv_path_s), torch.FloatTensor(xv_user_s))
-        
-        return Xt_final, yt_s, Xv_final, yv_s, scaler_y, feat_idx

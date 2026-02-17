@@ -40,7 +40,12 @@ def prepare_fold_data(X_t: tuple, y_t, X_v: tuple, y_v) -> tuple:
     # Structure: (x_ts, x_path, x_user)
     # 1. X_TS (N, P, F, T) -> Scale Per feature F across N, P, T
     xt_ts, xv_ts = X_t[0], X_v[0]
-    N, P, F, T = xt_ts.shape
+    
+    # Get dimensions for Training data
+    N_t, P, F, T_t = xt_ts.shape
+    
+    # Get dimensions for Validation/Test data (T might differ or just be safe)
+    N_v, _, _, T_v = xv_ts.shape
     
     # Handle both Tensor and Numpy inputs for reshaping/transposing
     # if isinstance(xt_ts, torch.Tensor):
@@ -52,8 +57,9 @@ def prepare_fold_data(X_t: tuple, y_t, X_v: tuple, y_v) -> tuple:
     
     scaler_ts = StandardScaler()
     # Scaling - returns numpy
-    xt_ts_s = scaler_ts.fit_transform(xt_ts_flat).reshape(N, P, T, F).transpose(0,1,3,2)
-    xv_ts_s = scaler_ts.transform(xv_ts_flat).reshape(xv_ts.shape[0], P, T, F).transpose(0,1,3,2)
+    # Reshape back using the specific dimensions of each set
+    xt_ts_s = scaler_ts.fit_transform(xt_ts_flat).reshape(N_t, P, T_t, F).transpose(0,1,3,2)
+    xv_ts_s = scaler_ts.transform(xv_ts_flat).reshape(N_v, P, T_v, F).transpose(0,1,3,2)
     
     # 2. X_PATH (N, P, Fp) -> Scale Per feature Fp across N, P
     xt_path, xv_path = X_t[1], X_v[1]

@@ -14,18 +14,18 @@ class ModelTemplate(BaseModel):
         
         # X tuple: (x_ts, x_path, x_user)
         #     1. x_ts: Time-Series Dataset
-        #         - Shape: (n_samples, n_paths, n_timeseries, max_timesteps)
-        #         - Values: (Batch, 20, 35, 158)
+        #         - Shape (variable): (n_samples, n_paths, n_timeseries, variable_length)
+        #         - Values: (25, 20, 32, variable_timesteps)
         #     2. x_path: Path-Level Dataset
         #         - Shape: (n_samples, n_paths, n_path_features)
-        #         - Values: (Batch, 20, 105)
+        #         - Values: (25, 20, 73)
         #     3. x_user: User-Level Dataset
         #         - Shape: (n_samples, n_user_features)
-        #         - Values: (Batch, 2)
+        #         - Values: (25, 2)
 
         # y: Targets
         #     - Shape: (n_samples, n_targets)
-        #     - Values: (135, 4)
+        #     - Values: (25, 14)
         
         ts_shape = input_dims[0]
         self.n_paths = ts_shape[1]

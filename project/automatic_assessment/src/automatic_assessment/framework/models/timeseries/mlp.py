@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Dict, Any, Union, List
-from .base import BaseModel
+from ..base import BaseModel
 
 class SimpleMLP(BaseModel):
     model_name = "Simple_TimeAveraged_MLP"

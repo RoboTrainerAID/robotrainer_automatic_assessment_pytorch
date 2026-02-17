@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .base import BaseModel
+from ..base import BaseModel
 from typing import List, Union
 
 class CNN1D(BaseModel):

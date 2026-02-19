@@ -2,6 +2,62 @@ import torch
 import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import StandardScaler
+from automatic_assessment.framework.dimred.lars import select_multitarget_top_features_lars
+from automatic_assessment.framework.dimred.correlation import select_features_by_correlation
+
+def apply_feature_selection(X_train: tuple, y_train: torch.Tensor, X_val: tuple, n_features: int, correlation_threshold: float = 0.1, selection_method: str = 'lars') -> tuple:
+    """
+    Selects top n_features from X_train[1] (Path features) based on y_train using LARS OR Correlation.
+    Applies the selection to both X_train and X_val.
+    
+    Args:
+        X_train: Tuple of tensors (ts, path, user)
+        y_train: Tensor of targets
+        X_val: Tuple of validation tensors (ts, path, user)
+        n_features: Number of features to keep (LARS). Ignored for Correlation.
+        correlation_threshold: Features below this correlation are dropped (Correlation).
+        selection_method: 'lars' or 'correlation'
+        
+    Returns:
+        (X_train_new, X_val_new) with modified path feature tensors.
+    """
+    if selection_method == 'lars':
+        if n_features is None:
+            return X_train, X_val
+            
+        # Need numpy for LARS
+        x_path_train = X_train[1].numpy()
+        y_train_np = y_train.numpy()
+        
+        selected_indices = select_multitarget_top_features_lars(x_path_train, y_train_np, top_n_features=n_features)
+        
+    else:
+        # Correlation
+        if correlation_threshold is None:
+            return X_train, X_val
+        
+        # Need numpy for correlation
+        x_path_train = X_train[1].numpy()
+        y_train_np = y_train.numpy()
+        
+        selected_indices = select_features_by_correlation(x_path_train, y_train_np, correlation_threshold=correlation_threshold)
+
+    # Convert to tensor for indexing
+    feat_indices = torch.tensor(selected_indices, dtype=torch.long)
+    
+    # Update Train Path Features
+    Xt_list = list(X_train)
+    # Apply selection: (N, P, F) -> (N, P, F_sel)
+    Xt_list[1] = Xt_list[1][:, :, feat_indices]
+    X_train_new = tuple(Xt_list)
+    
+    # Update Val Path Features
+    Xv_list = list(X_val)
+    Xv_list[1] = Xv_list[1][:, :, feat_indices]
+    X_val_new = tuple(Xv_list)
+    
+    return X_train_new, X_val_new
+
 
 def get_dataloader(*tensors, batch_size, shuffle=True):
     """

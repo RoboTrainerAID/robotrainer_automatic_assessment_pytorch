@@ -1,7 +1,29 @@
+# How to start
+1. RAW Dataset generation
+   1. Place all .bag files in one folder
+   2. with docker `robotrainer_docker_meldic/gait` branch gait follow README instructions there to generate gait.bag files
+   3. Place all gait.bag files in another folder
+   4. with docker `robotrainer_docker_meldic/bag_to_csv` branch `bag_to_csv` 
+      1. Check config.ini for correct folder paths and topics to filter out
+      2. run `bag_to_numpy_dataset.py` to generate the dataset as .npy files
+      3. Copy folder into this docker data folder
+   
+2. FINAL Dataset generation
+   1. with repo/docker `robotrainer_automatic_assessment_pytorch` branch `location_of_interest` run `dataset/process_dataset.py` to generate the final dataset as .npy files
+      1. Check `dataset/config.py` for correct folder paths
+      2. Results is: `timeseries_numpy_processed` This includes imputation, augmentation and merging of the raw datasets into one final dataset that can be used for training and evaluation
+      3. This also extracts timeseries features into `timeseries_features.csv`
 
-- https://medium.com/analytics-vidhya/dimensionality-reduction-techniques-in-machine-learning-9098037baddc
+3. TRAIN and TEST split
+   1. Run `/framework/data/dataset.py` to load the dataset and split into train and test sets
+      1. Result is separate `/data/train` and `/data/test` folders split by defined user IDs
+
+4. RUN model training and evaluation
+   1. Run `/framework/main_simple.py` to train and evaluate the model with LOGO and hyperparameter tuning
+      2. Result is a folder for each model with saved hyperparameters, scores, predictions and feature importances
 
 # Architecture descicions
+- https://medium.com/analytics-vidhya/dimensionality-reduction-techniques-in-machine-learning-9098037baddc
 
 Problems:
 
@@ -120,14 +142,3 @@ Output data: single clinical scale / all multioutput clinical scales
     - Performance as parity plot
     - Prepare comparison of different models (although for now only one used) by iterating all the model folders and aggregating
     
-
-# How to start
-1. Dataset generation
-   1. Place all .bag files in one folder
-   2. with docker `robotrainer_docker_meldic/gait` branch gait follow README instructions there to generate gait.bag files
-   3. Place all gait.bag files in another folder
-   4. with docker `robotrainer_docker_meldic/bag_to_csv` branch `bag_to_csv` 
-      1. Check config.ini for correct folder paths and topics to filter out
-      2. run `bag_to_numpy_dataset.py` to generate the dataset as .npy files
-      3. Copy folder into this docker data folder
-   

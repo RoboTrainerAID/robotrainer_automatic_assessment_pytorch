@@ -159,6 +159,7 @@ def _load_dataset_split(
     feature_names = {
         "user": x_user_cols,
         "path": x_path_cols,
+        "targets": y_cols,
         "ts": []
     }
     
@@ -250,6 +251,11 @@ class AssessmentDataset(TorchDataset):
         self._x_ts_orig = self.x_ts.clone()
         self._x_path_orig = self.x_path.clone()
         self._x_user_orig = self.x_user.clone()
+        self._y_orig = self.y.clone()
+        
+        # Make a deep copy of feature names to restore from
+        import copy
+        self._feature_names_orig = copy.deepcopy(self.feature_names)
         
         self.n_samples = self.y.shape[0]
 
@@ -281,6 +287,48 @@ class AssessmentDataset(TorchDataset):
         print(f"Placeholder: Performing feature selection using {method}...")
         # Implementation to follow
         pass
+
+    def perform_target_selection(self, selected_targets: Union[List[str], str]):
+        """
+        Updates self.y and self.feature_names['targets'] to include only the specified targets.
+        Always restores from self._y_orig first to allow sequential calls with different sets.
+        """
+        if isinstance(selected_targets, str):
+            selected_targets = [selected_targets]
+            
+        print(f"Selecting targets: {selected_targets}")
+        
+        # 1. Restore from original (including any augmentation applied if logic was updated to update _orig)
+        # Note: If augmentation is applied, it should update _y_orig too or handle differencing.
+        # For now assuming static dataset or that augmentation updates _orig
+        self.y = self._y_orig.clone()
+        import copy
+        self.feature_names = copy.deepcopy(self._feature_names_orig)
+        
+        all_targets = self.feature_names['targets']
+        
+        # 2. Find indices
+        indices = []
+        found_targets = []
+        
+        for t in selected_targets:
+            if t in all_targets:
+                indices.append(all_targets.index(t))
+                found_targets.append(t)
+            else:
+                print(f"Warning: Target '{t}' not found in dataset. Available: {all_targets}")
+        
+        if not indices:
+            raise ValueError(f"No valid targets selected from available: {all_targets}")
+            
+        # 3. Slice y
+        indices_tensor = torch.tensor(indices, dtype=torch.long)
+        self.y = self.y[:, indices_tensor]
+        
+        # 4. Update feature names
+        self.feature_names['targets'] = found_targets
+        
+        print(f"Dataset updated. New target shape: {self.y.shape}")
 
 
 if __name__ == "__main__":

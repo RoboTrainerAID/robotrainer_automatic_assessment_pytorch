@@ -7,7 +7,9 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 from automatic_assessment.framework.core.trainer import Trainer
-from automatic_assessment.framework.data.data_utils import AugmentedLOGO, prepare_fold_data, slice_data
+from automatic_assessment.framework.core.trainer_sklearn import SklearnTrainer
+from automatic_assessment.framework.models.sklearn.sklearn_base import SklearnBaseModel
+from automatic_assessment.framework.data.data_utils import AugmentedLOGO, prepare_fold_data, slice_data, apply_feature_selection
 from automatic_assessment.framework.reporting.metrics import calculate_metrics
 from automatic_assessment.framework.utils.time_utils import start_timer, stop_timer
 from automatic_assessment.framework.models.dummy import DummyBaseline
@@ -16,6 +18,12 @@ class SimplePipeline:
     def __init__(self, model_class, config):
         self.model_class= model_class
         self.config = config
+
+    def _get_trainer(self, model_class, input_dims, output_dim, params):
+        if issubclass(model_class, SklearnBaseModel):
+            return SklearnTrainer(model_class, input_dims, output_dim, params)
+        else:
+            return Trainer(model_class, input_dims, output_dim, params)
 
     def run_simple_tuning(self, X: tuple, y: np.ndarray, users: np.ndarray) -> dict:
         """
@@ -76,8 +84,19 @@ class SimplePipeline:
             # Scale/Prepare
             Xt_s, yt_s, Xv_s, yv_s, _, _ = prepare_fold_data(X_t, y_t, X_v, y_v)
             
+            # Apply Feature Selection if in best_params
+            n_path_features = best_params.get('n_path_features')
+            correlation_threshold = best_params.get('correlation_threshold')
+            
+            method = 'lars' if n_path_features is not None else 'correlation'
+            
+            Xt_s, Xv_s = apply_feature_selection(Xt_s, yt_s, Xv_s, 
+                                                               n_features=n_path_features, 
+                                                               correlation_threshold=correlation_threshold,
+                                                               selection_method=method)
+
             input_dims = self.model_class.get_input_dims(Xt_s)
-            trainer = Trainer(self.model_class, input_dims, yt_s.shape[1], best_params)
+            trainer = self._get_trainer(self.model_class, input_dims, yt_s.shape[1], best_params)
             
             history = trainer.train_model_and_evaluate_every_epoch(
                 Xt_s, yt_s, 
@@ -144,9 +163,20 @@ class SimplePipeline:
         # Using prepare_fold_data logic: X_train -> X_t, X_test -> X_v
         Xt_s, yt_s, Xtest_s, ytest_s, _, _ = prepare_fold_data(X_train, y_train, X_test, y_test)
 
+        # Apply Feature Selection if in best_params
+        n_path_features = best_params.get('n_path_features')
+        correlation_threshold = best_params.get('correlation_threshold')
+        
+        method = 'lars' if n_path_features is not None else 'correlation'
+        
+        Xt_s, Xtest_s = apply_feature_selection(Xt_s, yt_s, Xtest_s, 
+                                                           n_features=n_path_features, 
+                                                           correlation_threshold=correlation_threshold,
+                                                           selection_method=method)
+
         # Train on full X_train
         input_dims = self.model_class.get_input_dims(Xt_s)
-        trainer = Trainer(self.model_class, input_dims, yt_s.shape[1], best_params)
+        trainer = self._get_trainer(self.model_class, input_dims, yt_s.shape[1], best_params)
         
         tqdm.write("Training final model on full training set...")
         trainer.train_model(Xt_s, yt_s, epochs=self.config.get('epochs', 50))
@@ -221,6 +251,9 @@ class SimplePipeline:
         
         splits = list(logo.split(groups=users))
         
+        # Check for feature selection
+        n_features = params.get('n_path_features', None)
+        
         for fold_idx, (train_idx, val_idx) in enumerate(tqdm(splits, desc="Inner CV", leave=False)):
             X_t = slice_data(X, train_idx)
             X_v = slice_data(X, val_idx)
@@ -233,10 +266,23 @@ class SimplePipeline:
                 # If data is already scaled, use as is
                 Xt_scaled, yt_scaled, Xv_scaled, yv_scaled = X_t, y_t, X_v, y_v
 
+            # Feature Selection Step
+            # Apply Feature Selection if in best_params
+            n_path_features = params.get('n_path_features')
+            correlation_threshold = params.get('correlation_threshold')
+            
+            method = 'lars' if n_path_features is not None else 'correlation'
+            
+            Xt_scaled, Xv_scaled = apply_feature_selection(Xt_scaled, yt_scaled, Xv_scaled, 
+                                                                         n_features=n_path_features, 
+                                                                         correlation_threshold=correlation_threshold,
+                                                                         selection_method=method)
+
             input_dims = self.model_class.get_input_dims(Xt_scaled)
 
-            trainer = Trainer(self.model_class, input_dims, yt_scaled.shape[1], params)
+            trainer = self._get_trainer(self.model_class, input_dims, yt_scaled.shape[1], params)
             trainer.train_model(Xt_scaled, yt_scaled, epochs=self.config.get('epochs', 50))
+
             
             val_loss, val_preds, val_actuals = trainer.evaluate_model(Xv_scaled, yv_scaled)
             

@@ -404,6 +404,97 @@ def analyze_correlations(features_df: pd.DataFrame, targets_df: pd.DataFrame, th
     plt.savefig(output_plot_best)
     print(f"Best-per-target matrix saved to: {output_plot_best}")
 
+def analyze_feature_retention(features_df: pd.DataFrame, targets_df: pd.DataFrame, thresholds: list = np.arange(0.4, 0.8, 0.01)) -> None:
+    """
+    Analyzes how many features remain after filtering by different correlation thresholds.
+    Prints a report.
+    """
+    if features_df.empty or targets_df.empty:
+        return
+
+    print("\n" + "="*40)
+    print("Running Feature Retention Analysis...")
+    
+    # Identify common user column
+    target_user_col = None
+    if 'user' in targets_df.columns:
+        target_user_col = 'user'
+    elif 'Code' in targets_df.columns:
+        target_user_col = 'Code'
+    
+    if not target_user_col:
+        print("Error: Could not identify user column in targets CSV (expected 'user' or 'Code').")
+        return
+
+    feature_cols = [c for c in features_df.columns if c not in ['user', 'path', 'class', 'trial_index']]
+    target_cols = [c for c in targets_df.columns if c not in [target_user_col, 'user', 'path']]
+    target_cols = [c for c in target_cols if pd.api.types.is_numeric_dtype(targets_df[c])]
+
+    print(f"  Total Initial Features: {len(feature_cols)}")
+    print(f"  Targets considered: {len(target_cols)}")
+
+    # Pre-calculate Max Correlation for each feature
+    feature_max_corrs = {f: 0.0 for f in feature_cols}
+    
+    # Merge data once if possible, or per path (trial) like before
+    features_sorted = features_df.sort_values(by=['user', 'path'])
+    # Assign path index
+    if 'trial_index' not in features_sorted.columns:
+        features_sorted['trial_index'] = features_sorted.groupby('user').cumcount() + 1
+    max_trials = features_sorted['trial_index'].max()
+
+    # Iterate trials
+    # We take the max correlation a feature achieves in ANY trial across ANY target.
+    # This is "best-case" relevance.
+    
+    for t_idx in range(1, max_trials + 1):
+        trial_data = features_sorted[features_sorted['trial_index'] == t_idx]
+        merged = pd.merge(trial_data, targets_df, left_on='user', right_on=target_user_col, how='inner')
+        
+        if len(merged) < 3: continue
+
+        for f_col in feature_cols:
+            if merged[f_col].std() == 0: continue
+            
+            for t_col in target_cols:
+                tmp = merged[[f_col, t_col]].dropna()
+                if len(tmp) < 3: continue
+                
+                r, _ = pearsonr(tmp[f_col], tmp[t_col])
+                current_abs = abs(r)
+                
+                if current_abs > feature_max_corrs[f_col]:
+                    feature_max_corrs[f_col] = current_abs
+
+    # Determine counts for thresholds
+    print("\n--- Feature Retention Report ---")
+    print(f"{'Threshold':<10} | {'Retained Features':<20} | {'% of Total':<10}")
+    print("-" * 45)
+    
+    results = []
+
+    for thresh in thresholds:
+        count = sum(1 for val in feature_max_corrs.values() if val >= thresh)
+        perc = (count / len(feature_cols)) * 100
+        print(f"{thresh:<10.2f} | {count:<20} | {perc:<10.2f}%")
+        results.append((thresh, count))
+    
+    print("="*40 + "\n")
+    
+    # Optional: Plot retention curve
+    plt.figure(figsize=(8, 5))
+    x_vals = [r[0] for r in results]
+    y_vals = [r[1] for r in results]
+    plt.plot(x_vals, y_vals, marker='o', linestyle='-')
+    plt.title("Feature Retention vs. Correlation Threshold")
+    plt.xlabel("Correlation Threshold (Absolute)")
+    plt.ylabel("Number of Retained Features")
+    plt.grid(True)
+    
+    output_plot = "/workspace/automatic_assessment/figures/dataset/feature_retention_curve.png"
+    plt.savefig(output_plot)
+    print(f"Retention curve saved to: {output_plot}")
+
 def main():
     # 1. Load Features
     features = load_csv_data(config.CSV_OUTPUT_PATH) # Uses config default
@@ -415,7 +506,10 @@ def main():
     # compare_target_csvs(targets_old, targets)
     
     # 3. Correlation Plot
-    analyze_correlations(features, targets, threshold=0.5)
+    # analyze_correlations(features, targets, threshold=0.5)
+
+    # 4. Feature Retention Analysis
+    analyze_feature_retention(features, targets)
 
 if __name__ == "__main__":
     main()

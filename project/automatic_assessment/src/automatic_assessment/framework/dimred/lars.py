@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
+import warnings
 from sklearn.linear_model import lars_path
+from sklearn.exceptions import ConvergenceWarning
 from collections import Counter
 from typing import List
 
@@ -127,6 +129,83 @@ def select_top_sources_lars(X: pd.DataFrame, y: pd.Series, top_k_sources: int = 
             
     print(f"\nSelection Complete. Found {len(ordered_sources)} unique sources.")
     return ordered_sources
+
+def select_multitarget_top_features_lars(X: np.ndarray, y: np.ndarray, top_n_features: int = 20) -> List[int]:
+    """
+    Runs LARS on each target independently on RAW TENSORS (as numpy).
+    Ranks individual features by how many targets selected them.
+    X: (N_samples, N_paths, N_features)
+    y: (N_samples, N_targets)
+    
+    Returns: List[int] of indices of selected features.
+    """
+    
+    # Handle X shape
+    if X.ndim == 3:
+        # X is (N, Paths, Features). 
+        # Strategy: Flatten Paths into Samples dimension to treat each path as an instance
+        N_samples, N_paths, N_feats = X.shape
+        X_flat = X.reshape(N_samples * N_paths, N_feats)
+        
+        # Prepare y
+        # y is (N, T). Need to repeat for each path.
+        # Repeat each row P times.
+        y_flat = np.repeat(y, N_paths, axis=0) # (N*P, T)
+    else:
+        # Assume (N, F)
+        X_flat = X
+        y_flat = y
+
+    # Ensure no NaNs - simple imputation
+    if np.isnan(X_flat).any():
+        col_mean = np.nanmean(X_flat, axis=0)
+        # Find indices where NaN
+        inds = np.where(np.isnan(X_flat))
+        # Place means
+        X_flat[inds] = np.take(col_mean, inds[1])
+        
+    feature_votes = Counter()
+    
+    n_targets = y_flat.shape[1]
+    
+    # 1. Loop through each target
+    for t_idx in range(n_targets):
+        target_vals = y_flat[:, t_idx]
+        
+        # skip if target has NaNs
+        if np.isnan(target_vals).any(): 
+            continue
+            
+        # Run LARS Path
+        # method='lasso' is standard LARS-LASSO
+        # Returns: alphas, active, coefs
+        # active is list of indices
+        try:
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                _, active_indices, _ = lars_path(X_flat, target_vals, method='lasso')
+            
+            # Take Top K unique features for THIS target
+            subset_indices = active_indices[:(top_n_features * 2)] # Heuristic: look slightly deeper
+            
+            for feat_idx in subset_indices:
+                feature_votes[feat_idx] += 1
+                
+        except Exception as e:
+            # print(f"Warning: LARS failed for target {t_idx}: {e}")
+            pass
+
+    # 2. Global Ranking
+    most_common = feature_votes.most_common(top_n_features)
+    
+    # Extract just the indices
+    selected_indices = [idx for idx, count in most_common]
+    # Keep original order for stability
+    selected_indices.sort()
+    
+    return selected_indices
+
+
 
 # ================= USAGE EXAMPLE =================
 # assuming X_train (scaled) and y_train exist

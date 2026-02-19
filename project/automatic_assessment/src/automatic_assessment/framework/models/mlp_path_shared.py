@@ -126,26 +126,29 @@ class MLPSharedEncoder(BaseModel):
     def get_hyperparameter_space(trial):
 
         return {
-            "lr": trial.suggest_float("lr", 1e-5, 1e-2, log=True),
+            "lr": trial.suggest_float("lr", 1e-4, 1e-2, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True),
-            "batch_size": trial.suggest_categorical("batch_size", [4, 6, 8, 16]),
+            "batch_size": trial.suggest_categorical("batch_size", [6]),
             "embed_dim": trial.suggest_categorical("embed_dim", [4, 8, 16]),
             "hidden_dim": trial.suggest_categorical("hidden_dim", [8, 16, 32]),
-            "reg_hidden_dim": trial.suggest_categorical("reg_hidden_dim", [8, 16, 32]),
+            "reg_hidden_dim": trial.suggest_categorical("reg_hidden_dim", [16, 32, 64]),
             "dropout": trial.suggest_float("dropout", 0.0, 0.3),
-            "pooling": trial.suggest_categorical("pooling", ["mean", "attention"]),
+            "pooling": trial.suggest_categorical("pooling", ["attention"]), #"mean", 
+            # "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
+            "correlation_threshold": trial.suggest_float("correlation_threshold", 0.4, 0.8, step=0.01)
         }
 
     @staticmethod
     def get_default_parameters():
 
         return {
-            "lr": 0.0002,
-            "weight_decay": 0.002,
-            "batch_size": 8,
-            "embed_dim": 8,
-            "hidden_dim": 16,
-            "reg_hidden_dim": 16,
-            "dropout": 0.1,
-            "pooling": "mean",
+            "lr": 0.0020482145259930733,
+            "weight_decay": 5.376715143744761e-05,
+            "batch_size": 6,
+            "embed_dim": 4,
+            "hidden_dim": 8,
+            "reg_hidden_dim": 32,
+            "dropout": 0.24441804653714266,
+            "pooling": "attention",
+            "n_path_features": 20,
         }

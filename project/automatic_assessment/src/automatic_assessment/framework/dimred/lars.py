@@ -5,6 +5,7 @@ from sklearn.linear_model import lars_path
 from sklearn.exceptions import ConvergenceWarning
 from collections import Counter
 from typing import List
+from tqdm import tqdm
 
 # Helper to map feature -> source
 def get_source_name(feat_name, possible_sources: List[str]) -> str:
@@ -180,7 +181,7 @@ def select_multitarget_top_features_lars(X: np.ndarray, y: np.ndarray, top_n_fea
                 _, active_indices, _ = lars_path(X_flat, target_vals, method='lasso')
             
             # Take Top K unique features for THIS target
-            subset_indices = active_indices[:(top_n_features * 2)] # Heuristic: look slightly deeper
+            subset_indices = active_indices[:(top_n_features // 2)] # Heuristic: look slightly deeper
             
             for feat_idx in subset_indices:
                 feature_votes[feat_idx] += 1
@@ -197,9 +198,11 @@ def select_multitarget_top_features_lars(X: np.ndarray, y: np.ndarray, top_n_fea
     # Keep original order for stability
     selected_indices.sort()
     
-    print(f"[LARS Selection] Total Features: {total_features}, Selected: {len(selected_indices)}.")
-    if len(selected_indices) > 0:
-        print(f"Top 10 Selected Indices: {selected_indices[:10]}")
+    tqdm.write(f"[LARS Selection] Total Features: {total_features}, Selected: {len(selected_indices)}.")
+    # for rank, (idx, count) in enumerate(most_common):
+    #     print(f"  {rank+1}. Feature Index: {idx}, Votes: {count}")
+    #     if rank >= min(10, top_n_features - 1):
+    #         break
 
     return selected_indices
 

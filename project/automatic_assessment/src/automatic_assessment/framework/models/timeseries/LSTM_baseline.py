@@ -53,7 +53,7 @@ class LSTMBaseline(BaseModel):
         self.lstm_hidden = hp["lstm_hidden"]
 
         self.lstm = nn.LSTM(
-            input_size=1,
+            input_size=self.n_ts,
             hidden_size=self.lstm_hidden,
             num_layers=hp["lstm_layers"],
             dropout=hp["dropout_lstm"] if hp["lstm_layers"] > 1 else 0.0,
@@ -62,7 +62,7 @@ class LSTMBaseline(BaseModel):
         )
 
         manual_dim = self.n_paths * self.f_path + self.f_user
-        fused_dim = self.n_paths * self.n_ts * self.lstm_hidden + manual_dim
+        fused_dim = self.n_paths * self.lstm_hidden + manual_dim
 
         self.regressor = nn.Sequential(
             nn.Linear(fused_dim, hp["regressor_dim"]),
@@ -77,14 +77,16 @@ class LSTMBaseline(BaseModel):
         # (B,P,TS,T)
         B, P, TS, T = x_ts.shape
 
-        # flatten hierarchy → (N,T)
-        x_flat = x_ts.view(B * P * TS, T)
+        # compute path lengths
+        x_path = x_ts.abs().sum(dim=2)  # collapse TS
+        x_path = x_path.view(B * P, T)
+        l = compute_lengths_flat(x_path).cpu()
 
-        # compute lengths correctly
-        l = compute_lengths_flat(x_flat).cpu()
+        # reorder → (B,P,T,TS)
+        x = x_ts.permute(0, 1, 3, 2)
 
-        # add feature dim → (N,T,1)
-        x = x_flat.unsqueeze(-1)
+        # flatten → (B*P,T,TS)
+        x = x.reshape(B * P, T, TS)
 
         packed = nn.utils.rnn.pack_padded_sequence(
             x,
@@ -103,7 +105,7 @@ class LSTMBaseline(BaseModel):
 
         pooled = masked_mean(padded, l)
 
-        pooled = pooled.view(B, P * TS * pooled.shape[-1])
+        pooled = pooled.view(B, P * pooled.shape[-1])
         return pooled
 
     # -----------------------------------------------------

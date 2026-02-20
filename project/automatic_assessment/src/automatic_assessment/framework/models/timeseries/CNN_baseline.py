@@ -41,14 +41,14 @@ class CNNBaseline(BaseModel):
         channels = hp["cnn_channels"]
 
         self.cnn = nn.Sequential(
-            nn.Conv1d(1, channels, kernel_size=5, padding=2),
+            nn.Conv1d(self.n_ts, channels, kernel_size=5, padding=2),
             nn.ReLU(),
             nn.Conv1d(channels, channels, kernel_size=3, padding=1),
             nn.ReLU(),
         )
 
         manual_dim = self.n_paths * self.f_path + self.f_user
-        fused_dim = self.n_paths * self.n_ts * channels + manual_dim
+        fused_dim = self.n_paths * channels + manual_dim
 
         self.regressor = nn.Sequential(
             nn.Linear(fused_dim, hp["regressor_dim"]),
@@ -62,17 +62,20 @@ class CNNBaseline(BaseModel):
     def encode_timeseries(self, x_ts):
         B, P, TS, T = x_ts.shape
 
-        x_flat = x_ts.view(B * P * TS, T)
-        l = compute_lengths_flat(x_flat)
+        # compute path lengths
+        x_path = x_ts.abs().sum(dim=2)
+        x_path = x_path.view(B * P, T)
+        l = compute_lengths_flat(x_path)
 
-        x = x_flat.unsqueeze(1)  # (N,1,T)
+        # flatten → (B*P,TS,T)
+        x = x_ts.reshape(B * P, TS, T)
 
         feat = self.cnn(x)
         feat = feat.permute(0, 2, 1)
 
         pooled = masked_mean(feat, l)
 
-        pooled = pooled.view(B, P * TS * pooled.shape[-1])
+        pooled = pooled.view(B, P * pooled.shape[-1])
         return pooled
 
     # -----------------------------------------------------

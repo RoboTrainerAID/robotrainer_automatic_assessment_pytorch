@@ -156,16 +156,10 @@ def select_multitarget_top_features_lars(X: np.ndarray, y: np.ndarray, top_n_fea
         X_flat = X
         y_flat = y
 
-    # Ensure no NaNs - simple imputation
-    if np.isnan(X_flat).any():
-        col_mean = np.nanmean(X_flat, axis=0)
-        # Find indices where NaN
-        inds = np.where(np.isnan(X_flat))
-        # Place means
-        X_flat[inds] = np.take(col_mean, inds[1])
+    # Assumes input is already normalized/standardized
         
     feature_votes = Counter()
-    
+    total_features = X_flat.shape[1]
     n_targets = y_flat.shape[1]
     
     # 1. Loop through each target
@@ -203,6 +197,10 @@ def select_multitarget_top_features_lars(X: np.ndarray, y: np.ndarray, top_n_fea
     # Keep original order for stability
     selected_indices.sort()
     
+    print(f"[LARS Selection] Total Features: {total_features}, Selected: {len(selected_indices)}.")
+    if len(selected_indices) > 0:
+        print(f"Top 10 Selected Indices: {selected_indices[:10]}")
+
     return selected_indices
 
 

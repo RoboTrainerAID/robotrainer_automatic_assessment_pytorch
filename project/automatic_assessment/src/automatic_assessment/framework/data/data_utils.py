@@ -5,42 +5,46 @@ from sklearn.preprocessing import StandardScaler
 from automatic_assessment.framework.dimred.lars import select_multitarget_top_features_lars
 from automatic_assessment.framework.dimred.correlation import select_features_by_correlation
 
-def apply_feature_selection(X_train: tuple, y_train: torch.Tensor, X_val: tuple, n_features: int, correlation_threshold: float = 0.1, selection_method: str = 'lars') -> tuple:
+def apply_feature_selection(X_train: tuple, y_train: torch.Tensor, X_val: tuple, n_features: int = None, correlation_threshold: float = None) -> tuple:
     """
-    Selects top n_features from X_train[1] (Path features) based on y_train using LARS OR Correlation.
-    Applies the selection to both X_train and X_val.
+    Selects path features from X_train[1] based on y_train using LARS or Correlation.
+    Automatic method selection:
+    - If n_features is provided -> Use LARS.
+    - If n_features is None and correlation_threshold is provided -> Use Correlation.
+    - If neither -> No selection.
     
     Args:
         X_train: Tuple of tensors (ts, path, user)
         y_train: Tensor of targets
         X_val: Tuple of validation tensors (ts, path, user)
-        n_features: Number of features to keep (LARS). Ignored for Correlation.
-        correlation_threshold: Features below this correlation are dropped (Correlation).
-        selection_method: 'lars' or 'correlation'
+        n_features: Number of features to keep (trigger for LARS).
+        correlation_threshold: Threshold for correlation (trigger for Correlation if LARS not used).
         
     Returns:
         (X_train_new, X_val_new) with modified path feature tensors.
     """
-    if selection_method == 'lars':
-        if n_features is None:
-            return X_train, X_val
-            
-        # Need numpy for LARS
+    
+    selected_indices = None
+    
+    # Determine method
+    if n_features is not None:
+        # Mode: LARS
         x_path_train = X_train[1].numpy()
         y_train_np = y_train.numpy()
-        
         selected_indices = select_multitarget_top_features_lars(x_path_train, y_train_np, top_n_features=n_features)
         
-    else:
-        # Correlation
-        if correlation_threshold is None:
-            return X_train, X_val
-        
-        # Need numpy for correlation
+    elif correlation_threshold is not None:
+        # Mode: Correlation
         x_path_train = X_train[1].numpy()
         y_train_np = y_train.numpy()
-        
         selected_indices = select_features_by_correlation(x_path_train, y_train_np, correlation_threshold=correlation_threshold)
+        
+    else:
+        # Mode: None
+        return X_train, X_val
+
+    if selected_indices is None or len(selected_indices) == 0:
+        return X_train, X_val
 
     # Convert to tensor for indexing
     feat_indices = torch.tensor(selected_indices, dtype=torch.long)

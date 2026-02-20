@@ -37,20 +37,10 @@ def select_features_by_correlation(X: np.ndarray, y: np.ndarray, correlation_thr
         X_flat = X
         y_flat = y
 
-    # Ensure no NaNs - simple imputation for correlation check
-    if np.isnan(X_flat).any():
-        col_mean = np.nanmean(X_flat, axis=0)
-        inds = np.where(np.isnan(X_flat))
-        X_flat[inds] = np.take(col_mean, inds[1])
         
     n_features = X_flat.shape[1]
     n_targets = y_flat.shape[1]
     
-    # Check for NaNs in y as well
-    valid_mask = ~np.isnan(y_flat).any(axis=1)
-    if not valid_mask.all():
-        X_flat = X_flat[valid_mask]
-        y_flat = y_flat[valid_mask]
     
     # If no data left, return all features (fallback) or empty
     if X_flat.shape[0] < 2:
@@ -58,32 +48,19 @@ def select_features_by_correlation(X: np.ndarray, y: np.ndarray, correlation_thr
 
     max_correlations = np.zeros(n_features)
 
-    # Vectorized correlation calculation is tricky with numpy for all pairs without big memory.
-    # Iterating features is safer for memory.
-    
-    # Pre-compute y standard deviations and centered y for speed
-    y_centered = y_flat - np.mean(y_flat, axis=0)
-    y_norm = np.linalg.norm(y_centered, axis=0)
-    # Avoid div by zero
-    y_norm[y_norm == 0] = 1.0 
+    # Assumes X and y are already standardized (mean 0, std 1)
+    # Correlation = (X^T @ y) / N (approximately, using simple dot product here)
+    # Since we care about relative magnitude and threshold, we use simple dot product scaling.
+    # However, strict Pearson R requires division by N. 
+    N = X_flat.shape[0]
 
     for f_idx in range(n_features):
         x_col = X_flat[:, f_idx]
         
-        # Check variance
-        if np.std(x_col) == 0:
-            max_correlations[f_idx] = 0.0
-            continue
-            
-        x_c = x_col - np.mean(x_col)
-        x_n = np.linalg.norm(x_c)
-        if x_n == 0:
-            x_n = 1.0
-            
         # Compute correlation vector (1 feature vs all targets)
-        # corr = (x . y) / (|x| * |y|)
-        dot_products = np.dot(y_centered.T, x_c) # (N_targets,)
-        corrs = dot_products / (y_norm * x_n)
+        # Assuming normalized data: corr = dot(x, y) / N
+        dot_products = np.dot(y_flat.T, x_col) # (N_targets,)
+        corrs = dot_products / N
         
         # Take the maximum absolute correlation this feature has with ANY target
         max_abs_corr = np.max(np.abs(corrs))
@@ -101,5 +78,9 @@ def select_features_by_correlation(X: np.ndarray, y: np.ndarray, correlation_thr
         else:
             # If absolutely no correlation (all 0), pick 0th feature just to have something non-empty
             selected_indices = [0]
+        
+    print(f"[Correlation Selection] Total Features: {n_features}, Selected: {len(selected_indices)} (Threshold: {correlation_threshold}).")
+    if len(selected_indices) > 0:
+        print(f"Top 10 Selected Indices: {selected_indices[:10]}")
         
     return selected_indices

@@ -85,15 +85,9 @@ class SimplePipeline:
             Xt_s, yt_s, Xv_s, yv_s, _, _ = prepare_fold_data(X_t, y_t, X_v, y_v)
             
             # Apply Feature Selection if in best_params
-            n_path_features = best_params.get('n_path_features')
-            correlation_threshold = best_params.get('correlation_threshold')
-            
-            method = 'lars' if n_path_features is not None else 'correlation'
-            
             Xt_s, Xv_s = apply_feature_selection(Xt_s, yt_s, Xv_s, 
-                                                               n_features=n_path_features, 
-                                                               correlation_threshold=correlation_threshold,
-                                                               selection_method=method)
+                                                n_features=best_params.get('n_path_features'), 
+                                                correlation_threshold=best_params.get('correlation_threshold'))
 
             input_dims = self.model_class.get_input_dims(Xt_s)
             trainer = self._get_trainer(self.model_class, input_dims, yt_s.shape[1], best_params)
@@ -164,15 +158,9 @@ class SimplePipeline:
         Xt_s, yt_s, Xtest_s, ytest_s, _, _ = prepare_fold_data(X_train, y_train, X_test, y_test)
 
         # Apply Feature Selection if in best_params
-        n_path_features = best_params.get('n_path_features')
-        correlation_threshold = best_params.get('correlation_threshold')
-        
-        method = 'lars' if n_path_features is not None else 'correlation'
-        
         Xt_s, Xtest_s = apply_feature_selection(Xt_s, yt_s, Xtest_s, 
-                                                           n_features=n_path_features, 
-                                                           correlation_threshold=correlation_threshold,
-                                                           selection_method=method)
+                                                n_features=best_params.get('n_path_features'), 
+                                                correlation_threshold=best_params.get('correlation_threshold'))
 
         # Train on full X_train
         input_dims = self.model_class.get_input_dims(Xt_s)
@@ -267,16 +255,9 @@ class SimplePipeline:
                 Xt_scaled, yt_scaled, Xv_scaled, yv_scaled = X_t, y_t, X_v, y_v
 
             # Feature Selection Step
-            # Apply Feature Selection if in best_params
-            n_path_features = params.get('n_path_features')
-            correlation_threshold = params.get('correlation_threshold')
-            
-            method = 'lars' if n_path_features is not None else 'correlation'
-            
             Xt_scaled, Xv_scaled = apply_feature_selection(Xt_scaled, yt_scaled, Xv_scaled, 
-                                                                         n_features=n_path_features, 
-                                                                         correlation_threshold=correlation_threshold,
-                                                                         selection_method=method)
+                                                           n_features=params.get('n_path_features'), 
+                                                           correlation_threshold=params.get('correlation_threshold'))
 
             input_dims = self.model_class.get_input_dims(Xt_scaled)
 

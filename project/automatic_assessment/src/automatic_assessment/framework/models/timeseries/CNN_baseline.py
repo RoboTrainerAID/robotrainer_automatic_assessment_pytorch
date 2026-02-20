@@ -47,8 +47,14 @@ class CNNBaseline(BaseModel):
             nn.ReLU(),
         )
 
+        self.path_attention = nn.Sequential(
+            nn.Linear(channels, channels),
+            nn.Tanh(),
+            nn.Linear(channels, 1)
+        )
+
         manual_dim = self.n_paths * self.f_path + self.f_user
-        fused_dim = self.n_paths * channels + manual_dim
+        fused_dim = channels + manual_dim
 
         self.regressor = nn.Sequential(
             nn.Linear(fused_dim, hp["regressor_dim"]),
@@ -75,7 +81,7 @@ class CNNBaseline(BaseModel):
 
         pooled = masked_mean(feat, l)
 
-        pooled = pooled.view(B, P * pooled.shape[-1])
+        pooled = pooled.view(B, P, pooled.shape[-1])
         return pooled
 
     # -----------------------------------------------------
@@ -83,7 +89,12 @@ class CNNBaseline(BaseModel):
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
         x_ts, x_path, x_user = x
 
-        ts_feat = self.encode_timeseries(x_ts)
+        ts_paths = self.encode_timeseries(x_ts)
+
+        att = self.path_attention(ts_paths)
+        att = torch.softmax(att, dim=1)
+
+        ts_feat = (ts_paths * att).sum(dim=1)
 
         manual = torch.cat([
             x_path.reshape(x_path.size(0), -1),

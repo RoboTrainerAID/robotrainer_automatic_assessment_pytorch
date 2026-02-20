@@ -61,8 +61,14 @@ class LSTMBaseline(BaseModel):
             bidirectional=False,
         )
 
+        self.path_attention = nn.Sequential(
+            nn.Linear(self.lstm_hidden, self.lstm_hidden),
+            nn.Tanh(),
+            nn.Linear(self.lstm_hidden, 1)
+        )
+
         manual_dim = self.n_paths * self.f_path + self.f_user
-        fused_dim = self.n_paths * self.lstm_hidden + manual_dim
+        fused_dim = self.lstm_hidden + manual_dim
 
         self.regressor = nn.Sequential(
             nn.Linear(fused_dim, hp["regressor_dim"]),
@@ -105,7 +111,7 @@ class LSTMBaseline(BaseModel):
 
         pooled = masked_mean(padded, l.to(padded.device))
 
-        pooled = pooled.view(B, P * pooled.shape[-1])
+        pooled = pooled.view(B, P, pooled.shape[-1])
         return pooled
 
     # -----------------------------------------------------
@@ -113,7 +119,12 @@ class LSTMBaseline(BaseModel):
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
         x_ts, x_path, x_user = x
 
-        ts_feat = self.encode_timeseries(x_ts)
+        ts_paths = self.encode_timeseries(x_ts)  # (B,P,H)
+
+        att = self.path_attention(ts_paths)      # (B,P,1)
+        att = torch.softmax(att, dim=1)
+
+        ts_feat = (ts_paths * att).sum(dim=1)    # (B,H)
 
         manual = torch.cat([
             x_path.reshape(x_path.size(0), -1),
@@ -122,8 +133,6 @@ class LSTMBaseline(BaseModel):
 
         fused = torch.cat([ts_feat, manual], dim=1)
         return self.regressor(fused)
-
-    # OPTUNA unchanged
 
     # =====================================================
     # OPTUNA

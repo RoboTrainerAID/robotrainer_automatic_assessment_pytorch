@@ -129,6 +129,7 @@ class SimplePipeline:
             "test_actuals": np.zeros((len(y), y.shape[1])), # Placeholder
             "best_params": best_params,
             "val_metrics": best_val_metrics,
+            "baseline_metrics": baseline_metrics,  # <-- ADD: store val baseline in fold_data
             "tuning_trials": tuning_trials,
             "param_importances": param_importances,
             "history": history
@@ -145,13 +146,20 @@ class SimplePipeline:
         }
         return final_results
 
-    def run_final_test(self, X_train: tuple, y_train: np.ndarray, X_test: tuple, y_test: np.ndarray, best_params: dict) -> dict:
+    def run_final_test(self, X_train: tuple, y_train: np.ndarray, 
+                       X_test: tuple, y_test: np.ndarray, users_test: np.ndarray,
+                       tuning_results: dict) -> dict:
         """
         Trains the model on the full training set using the best parameters found 
         during tuning, and evaluates detailed metrics on the hold-out test set.
+        
+        Merges final test results into the tuning_results structure for unified reporting.
         """
         start_dt, start_perf = start_timer()
         tqdm.write("\n>>> RUNNING FINAL TEST ON HOLD-OUT SET <<<")
+        
+        # Extract best params from tuning results
+        best_params = tuning_results['fold_data'][0]['best_params']
 
         # Prepare Data (Fit scaler on Train, Apply to Train & Test)
         # Using prepare_fold_data logic: X_train -> X_t, X_test -> X_v
@@ -178,31 +186,55 @@ class SimplePipeline:
         dummy_preds, dummy_loss = dummy_baseline.run(yt_s, ytest_s)
 
         # Calculate Metrics
-        final_test_metrics = calculate_metrics([test_actuals], [test_preds], prefix="final_test")
-        final_baseline_metrics = calculate_metrics([test_actuals], [dummy_preds], prefix="final_baseline")
+        # Naming them 'test_' directly to match reporting expectations
+        final_test_metrics = calculate_metrics([test_actuals], [test_preds], prefix="test")
+        final_baseline_metrics = calculate_metrics([test_actuals], [dummy_preds], prefix="baseline")
 
         start_time_str, duration_str = stop_timer(start_dt, start_perf)
 
         tqdm.write("\n" + "="*40)
         tqdm.write(" FINAL TEST RESULTS (Hold-Out) ")
         tqdm.write(f" Test Loss: {test_loss:.3f}")
-        tqdm.write(f" Test RMSE: {final_test_metrics.get('final_test_rmse_mean', 0.0):.3f}")
+        tqdm.write(f" Test RMSE: {final_test_metrics.get('test_rmse_mean', 0.0):.3f}")
         tqdm.write("-" * 20)
         tqdm.write(f" Baseline Loss: {dummy_loss:.3f}")
-        tqdm.write(f" Baseline RMSE: {final_baseline_metrics.get('final_baseline_rmse_mean', 0.0):.3f}")
+        tqdm.write(f" Baseline RMSE: {final_baseline_metrics.get('baseline_rmse_mean', 0.0):.3f}")
         tqdm.write("="*40 + "\n")
 
         trainer.cleanup()
 
-        return {
-            "final_test_metrics": final_test_metrics,
-            "final_baseline_metrics": final_baseline_metrics,
-            "final_test_loss": test_loss,
-            "final_baseline_loss": dummy_loss,
-            "final_test_preds": test_preds,
-            "final_test_actuals": test_actuals,
-            "duration": duration_str
-        }
+        # --- UPDATE RESULTS DICTIONARY ---
+        # Clone tuning results to preserve CV info if needed, but overwrite top-level metrics
+        final_results = tuning_results.copy()
+        
+        # Preserve validation baseline before overwriting
+        val_baseline_metrics = tuning_results.get('baseline_metrics', {})
+        
+        # Update Top-Level Metrics
+        final_results['test_metrics'] = final_test_metrics
+        final_results['baseline_metrics'] = final_baseline_metrics
+        final_results['val_baseline_metrics'] = val_baseline_metrics  # <-- ADD: preserve val baseline
+        final_results['test_loss'] = test_loss
+        final_results['baseline_loss'] = dummy_loss
+        
+        # Update Experiment Info
+        final_results['experiment_info']['duration_final_test'] = duration_str
+        
+        # Update Fold Data for Visualization
+        # We replace the CV predictions with the Final Test predictions
+        # so that parity plots and error distributions reflect the Test Set performance.
+        final_results['fold_data'][0]['test_preds'] = test_preds
+        final_results['fold_data'][0]['test_actuals'] = test_actuals
+        final_results['fold_data'][0]['test_loss'] = test_loss
+        final_results['fold_data'][0]['baseline_loss'] = dummy_loss
+        
+        # Update User IDs for per-user analysis on Test Set
+        # Ensure users_test is flat
+        u_test_flat = users_test[:, 0] if (users_test.ndim > 1 and users_test.shape[1] == 1) else users_test
+        if u_test_flat.ndim > 1: u_test_flat = u_test_flat.flatten()
+        final_results['fold_data'][0]['user_id'] = u_test_flat
+
+        return final_results
 
     def _optimize_hyperparameters(self, X: tuple, y: torch.Tensor, users: np.ndarray, scale_data: bool = False) -> tuple[dict, float, dict, object, dict]:
         """Runs Optuna optimization using Inner LOGO."""
@@ -239,10 +271,7 @@ class SimplePipeline:
         
         splits = list(logo.split(groups=users))
         
-        # Check for feature selection
-        n_features = params.get('n_path_features', None)
-        
-        for fold_idx, (train_idx, val_idx) in enumerate(tqdm(splits, desc="Inner CV", leave=False)):
+        for fold_idx, (train_idx, val_idx) in enumerate(tqdm(splits, desc="LOGO CV", leave=False)):
             X_t = slice_data(X, train_idx)
             X_v = slice_data(X, val_idx)
             y_t, y_v = y[train_idx], y[val_idx]

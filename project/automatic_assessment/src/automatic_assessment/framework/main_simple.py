@@ -81,11 +81,11 @@ def main():
             
             config = {
                 "epochs": 50,
-                "hyperparameter_mode": 'default', # 'default', 'optimize'
-                "n_trials": 75,  # Number of Optuna trials
+                "hyperparameter_mode": 'optimize', # 'default', 'optimize'
+                "n_trials": 30,  # Number of Optuna trials
                 "targets": target_set,
                 "augmentation_ratio": ratio,
-                "note": "Testing",
+                "note": "First Experiment with Test",
             }
             
             # List of models to test
@@ -107,45 +107,29 @@ def main():
                 saver.save_model_source(model_class)
 
                 # 1. Hyperparameter Tuning & CV on Train Set
-                results = pipeline.run_simple_tuning(X_train, y_train, users_train)
+                # This returns the CV results (optimistic) and the best params found
+                tuning_results = pipeline.run_simple_tuning(X_train, y_train, users_train)
                 
-                # Extract best params found on training set
-                best_params = results['fold_data'][0]['best_params']
-
                 # 2. Final Evaluation on Test Set
-                # print("\nLoading Test Set...")
-                # dataset_test = AssessmentDataset("/data/test")
-                # X_test, y_test, _, _ = dataset_test.get_all()
-
-                # final_test_results = pipeline.run_final_test(X_train, y_train, X_test, y_test, best_params)
-
-                # Merge final results into main results dictionary for saving
-                # results.update(final_test_results)
+                print("\nLoading Test Set...")
+                dataset_test = AssessmentDataset("/data/test")
                 
-                # Update main metrics to reflect final test performance instead of CV estimates 
-                # for the plots that use 'test_metrics' key
-                # Mapping final_test_ -> test_ for compatibility with existing visualization/reporting
-                # renamed_metrics = {k.replace('final_test_', 'test_'): v for k,v in final_test_results['final_test_metrics'].items()}
-                # results['test_metrics'] = renamed_metrics
-                # results['test_loss'] = final_test_results['final_test_loss']
+                # Need target selection on test set too to match dimensions!
+                dataset_test.perform_target_selection(target_set)
                 
-                # Adding final baseline similarly
-                # renamed_baseline = {k.replace('final_baseline_', 'baseline_'): v for k,v in final_test_results['final_baseline_metrics'].items()}
-                # results['baseline_metrics'] = renamed_baseline
-                # results['baseline_loss'] = final_test_results['final_baseline_loss']
+                X_test, y_test, users_test, _ = dataset_test.get_all()
 
-                # Overwrite the 'test_preds' in fold_data for visualization (parity plots)
-                # Since simple tuning aggregates results in fold 0, we put final test preds there
-                # results['fold_data'][0]['test_preds'] = final_test_results['final_test_preds']
-                # results['fold_data'][0]['test_actuals'] = final_test_results['final_test_actuals']
-                # User ID mapping for test set might be needed if creating user reports, 
-                # but dataset.get_all doesn't return users for test easily mapped without ID.
-                # Just using placeholder or extracting if available.
-                # Since get_all returns users array, we can use it.
-                # _, _, users_test, _ = dataset_test.get_all()
-                # results['fold_data'][0]['user_id'] = users_test[:, 0] if users_test.ndim > 1 else users_test # Or use full array
+                # Run Final Test
+                # This consumes the tuning results, trains the final model on full train,
+                # evaluates on test, and returns a consolidated results dictionary.
+                final_results = pipeline.run_final_test(
+                    X_train, y_train, 
+                    X_test, y_test, users_test,
+                    tuning_results
+                )
 
-                saver.save_results(results)
+                # 3. Save & Report
+                saver.save_results(final_results)
 
                 visualizer = VisualizationModule(saver.output_dir)
                 visualizer.generate_all_plots()

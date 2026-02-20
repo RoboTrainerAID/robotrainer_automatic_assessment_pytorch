@@ -216,98 +216,134 @@ class VisualizationModule:
     def generate_rmse_comparison(self):
         """
         Generates a grouped bar chart comparing Validation and Test RMSE for each target.
-        Includes a baseline line at RMSE=1.0 and points for the dummy baseline.
+        Includes baseline dots for both validation and test baselines.
         """
         if not self.metrics:
             print("No metrics loaded for RMSE comparison.")
             return
 
-        # Extract target specific RMSEs
-        data = []
-        
-        # Identify target indices from keys like 'test_rmse_target_0' or 'mean_val_rmse_target_0'
-        for key, value in self.metrics.items():
-            if "rmse_target" not in key:
-                continue
-            
-            # Skip baseline metrics here, we handle them separately
-            if "baseline" in key:
-                continue
-                
-            parts = key.split('_')
-            # Structure often: [test, rmse, target, X] or [mean, val, rmse, target, X]
-            try:
-                target_idx_loc = parts.index('target') + 1
-                target_id = parts[target_idx_loc]
-                
-                if key.startswith('test_'):
-                    split = 'Test'
-                elif 'val_' in key:
-                    split = 'Validation'
-                else:
+        # Load target names from config.yaml
+        config_path = os.path.join(self.path, "config.yaml")
+        target_names = {}
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            targets_list = config.get('pipeline_config', {}).get('targets', [])
+            for i, name in enumerate(targets_list):
+                target_names[i] = name
+
+        # Find all target indices present
+        target_indices = set()
+        for key in self.metrics.keys():
+            if "rmse_target_" in key and "baseline" not in key:
+                try:
+                    parts = key.split('_')
+                    idx_pos = parts.index('target') + 1
+                    target_indices.add(int(parts[idx_pos]))
+                except (ValueError, IndexError):
                     continue
-                    
+
+        target_indices = sorted(target_indices)
+
+        if not target_indices:
+            print("No target-specific RMSE metrics found for plotting.")
+            return
+
+        # Collect Model RMSE (Val and Test)
+        data = []
+        for t_idx in target_indices:
+            label = target_names.get(t_idx, f"Target {t_idx}")
+
+            val_key = f"val_rmse_target_{t_idx}"
+            if val_key in self.metrics:
                 data.append({
-                    "Target": f"Target {target_id}",
-                    "RMSE": float(value),
-                    "Split": split
+                    "Target": label,
+                    "RMSE": float(self.metrics[val_key]),
+                    "Split": "Validation"
                 })
-            except (ValueError, IndexError):
-                continue
-                
+
+            test_key = f"test_rmse_target_{t_idx}"
+            if test_key in self.metrics:
+                data.append({
+                    "Target": label,
+                    "RMSE": float(self.metrics[test_key]),
+                    "Split": "Test"
+                })
+
         if not data:
             print("No target-specific RMSE metrics found for plotting.")
             return
-            
+
         df_plot = pd.DataFrame(data)
-        
+
         # Plotting
-        plt.figure(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(max(10, len(target_indices) * 2.5), 6))
         sns.set_theme(style="whitegrid")
-        
-        ax = sns.barplot(
-            data=df_plot, 
-            x='Target', 
-            y='RMSE', 
-            hue='Split', 
-            palette="muted"
+
+        barplot = sns.barplot(
+            data=df_plot,
+            x='Target',
+            y='RMSE',
+            hue='Split',
+            hue_order=["Validation", "Test"],
+            palette="muted",
+            ax=ax
         )
-        
-        # Add Random Guessing Baseline (Theoretical)
-        plt.axhline(y=1.0, color='black', linestyle='--', linewidth=2, label='Theoretical Baseline (RMSE=1.0)')
-        
-        # Add Actual Calculated Dummy Baseline (Per Target)
-        baseline_vals = {}
-        for key, value in self.metrics.items():
-            if key.startswith("baseline_rmse_target_"):
-                # key format: baseline_rmse_target_0
-                try:
-                    t_idx = int(key.split('_')[-1])
-                    baseline_vals[f"Target {t_idx}"] = float(value)
-                except:
-                    continue
-        
-        # Map values to x-coordinates
-        # The x-axis ticks are categorical: "Target 0", "Target 1"...
-        targets_on_axis = [t.get_text() for t in ax.get_xticklabels()]
-        
-        baseline_x = []
-        baseline_y = []
-        
-        for i, target_label in enumerate(targets_on_axis):
-            if target_label in baseline_vals:
-                baseline_x.append(i)
-                baseline_y.append(baseline_vals[target_label])
-                
-        if baseline_x:
-            plt.scatter(baseline_x, baseline_y, color='red', marker='D', s=50, zorder=5, label='Actual Dummy Baseline')
-        
-        plt.title("RMSE Comparison: Validation vs Test per Target", fontsize=16)
-        plt.ylabel("RMSE (Scaled)", fontsize=12)
-        plt.xlabel("")
-        plt.legend(title="Split")
+
+        # Theoretical baseline reference line
+        ax.axhline(y=1.0, color='black', linestyle='--', linewidth=1.5, alpha=0.5, label='Scaled Mean Baseline (≈1.0)')
+
+        # --- Overlay baseline dots aligned to actual bar positions ---
+        # Extract bar positions from the rendered barplot
+        # Bars are grouped: for each target, first bar = Validation, second bar = Test
+        val_bar_centers = []
+        test_bar_centers = []
+
+        patches = barplot.patches
+        n_targets = len(target_indices)
+        # sns.barplot renders all bars of one hue first, then all of the next hue
+        # So: patches[0..n_targets-1] = Validation bars, patches[n_targets..2*n_targets-1] = Test bars
+        for i in range(n_targets):
+            val_patch = patches[i]
+            val_bar_centers.append(val_patch.get_x() + val_patch.get_width() / 2)
+
+        for i in range(n_targets, 2 * n_targets):
+            test_patch = patches[i]
+            test_bar_centers.append(test_patch.get_x() + test_patch.get_width() / 2)
+
+        # Plot Validation Baseline dots on top of Validation bars
+        val_bl_x = []
+        val_bl_y = []
+        for i, t_idx in enumerate(target_indices):
+            val_bl_key = f"val_baseline_rmse_target_{t_idx}"
+            if val_bl_key in self.metrics:
+                val_bl_x.append(val_bar_centers[i])
+                val_bl_y.append(float(self.metrics[val_bl_key]))
+
+        if val_bl_x:
+            ax.scatter(val_bl_x, val_bl_y, color='#1f77b4', marker='D', s=70,
+                       zorder=5, edgecolors='black', linewidths=0.8, label='Val Baseline (Dummy)')
+
+        # Plot Test Baseline dots on top of Test bars
+        test_bl_x = []
+        test_bl_y = []
+        for i, t_idx in enumerate(target_indices):
+            test_bl_key = f"test_baseline_rmse_target_{t_idx}"
+            if test_bl_key in self.metrics:
+                test_bl_x.append(test_bar_centers[i])
+                test_bl_y.append(float(self.metrics[test_bl_key]))
+
+        if test_bl_x:
+            ax.scatter(test_bl_x, test_bl_y, color='#ff7f0e', marker='D', s=70,
+                       zorder=5, edgecolors='black', linewidths=0.8, label='Test Baseline (Dummy)')
+
+        ax.set_title("RMSE Comparison: Validation vs Test per Target", fontsize=16)
+        ax.set_ylabel("RMSE (Scaled)", fontsize=12)
+        ax.set_xlabel("")
+        plt.xticks(rotation=30, ha='right')
+        ax.legend(title="Legend", loc='upper right')
         plt.tight_layout()
-        
+
         save_path = os.path.join(self.figures_path, "rmse_comparison.png")
         plt.savefig(save_path)
         plt.close()
@@ -322,3 +358,10 @@ class VisualizationModule:
         self.generate_attention_plot()
         self.generate_tuning_plot()
         self.generate_rmse_comparison()
+
+if __name__ == "__main__":
+    # Example usage assume running from src root or similar
+    # Adjust path as needed during execution
+    experiment_path = "/workspace/automatic_assessment/experiment_results/20260220_174324_CNN_Baseline"
+    viz = VisualizationModule(experiment_path)
+    viz.generate_all_plots()

@@ -61,14 +61,20 @@ class LSTMBaseline(BaseModel):
             bidirectional=False,
         )
 
-        self.path_attention = nn.Sequential(
-            nn.Linear(self.lstm_hidden, self.lstm_hidden),
-            nn.Tanh(),
-            nn.Linear(self.lstm_hidden, 1)
+        self.path_dim = hp["path_dim"]
+
+        self.path_bottleneck = nn.Sequential(
+            nn.Linear(self.lstm_hidden + self.f_path, self.path_dim),
+            nn.ReLU()
         )
 
-        manual_dim = self.n_paths * self.f_path + self.f_user
-        fused_dim = self.lstm_hidden + manual_dim
+        self.path_attention = nn.Sequential(
+            nn.Linear(self.path_dim, self.path_dim),
+            nn.Tanh(),
+            nn.Linear(self.path_dim, 1)
+        )
+
+        fused_dim = self.path_dim + self.f_user
 
         self.regressor = nn.Sequential(
             nn.Linear(fused_dim, hp["regressor_dim"]),
@@ -121,17 +127,16 @@ class LSTMBaseline(BaseModel):
 
         ts_paths = self.encode_timeseries(x_ts)  # (B,P,H)
 
-        att = self.path_attention(ts_paths)      # (B,P,1)
+        path_combined = torch.cat([ts_paths, x_path], dim=-1)   # (B,P,Hts+f_path)
+        path_feat = self.path_bottleneck(path_combined)         # (B,P,path_dim)
+
+        att = self.path_attention(path_feat)
         att = torch.softmax(att, dim=1)
 
-        ts_feat = (ts_paths * att).sum(dim=1)    # (B,H)
+        path_global = (path_feat * att).sum(dim=1)               # (B,path_dim)
 
-        manual = torch.cat([
-            x_path.reshape(x_path.size(0), -1),
-            x_user
-        ], dim=1)
+        fused = torch.cat([path_global, x_user], dim=1)
 
-        fused = torch.cat([ts_feat, manual], dim=1)
         return self.regressor(fused)
 
     # =====================================================
@@ -141,27 +146,31 @@ class LSTMBaseline(BaseModel):
     @staticmethod
     def get_hyperparameter_space(trial) -> Dict[str, Any]:
         return {
-            "lstm_hidden": trial.suggest_categorical("lstm_hidden", [16, 32, 48, 64]),
-            "lstm_layers": trial.suggest_int("lstm_layers", 1, 2),
+            "lstm_hidden": trial.suggest_categorical("lstm_hidden", [8, 16, 32]),
+            "lstm_layers": trial.suggest_int("lstm_layers", 1, 1),
             "dropout_lstm": trial.suggest_float("dropout_lstm", 0.0, 0.3),
+            "path_dim": trial.suggest_categorical("path_dim", [8, 16, 32]),
             "regressor_dim": trial.suggest_categorical("regressor_dim", [64, 128, 256]),
             "dropout_reg": trial.suggest_float("dropout_reg", 0.0, 0.4),
             "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 1e-4, 1e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
-            "correlation_threshold": trial.suggest_float("correlation_threshold", 0.4, 0.8, step=0.01)
+            # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.1, 0.4, step=0.01),
+            "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5)
         }
 
     @staticmethod
     def get_default_parameters() -> Dict[str, Any]:
         return {
-            "lstm_hidden": 8,
+            "lstm_hidden": 32,
             "lstm_layers": 1,
             "dropout_lstm": 0.1,
-            "regressor_dim": 128,
+            "path_dim": 32,
+            "regressor_dim": 256,
             "dropout_reg": 0.2,
             "lr": 2e-4,
             "weight_decay": 1e-3,
             "batch_size": 6,
-            "correlation_threshold": 0.3
+            # "correlation_threshold": 0.3,
+            "n_path_features": 50
         }

@@ -16,23 +16,15 @@ def masked_mean(x: torch.Tensor, lengths: torch.Tensor):
     x = x * mask
     return x.sum(1) / lengths.clamp(min=1).unsqueeze(-1)
 
-def compute_lengths(x: torch.Tensor) -> torch.Tensor:
-    """
-    Computes the effective length of time series by finding the last non-zero element.
-    Args:
-        x: (N, T) tensor of time series data.
-    Returns:
-        lengths: (N,) tensor of lengths (clamped to min 1).
-    """
-    # valid: (N, T) boolean mask
+def _compute_lengths(self, x):
+    # x: (N,T)
+
     valid = (x.abs() > 1e-8)
 
-    flipped_valid = valid.flip(1)
-    
-    last_valid_idx_from_end = flipped_valid.float().argmax(dim=1)
-    
-    lengths = x.size(1) - last_valid_idx_from_end
-    
+    # flip to find first valid from end
+    last_valid = valid.flip(1).float().argmax(dim=1)
+
+    lengths = x.size(1) - last_valid
     return lengths.clamp(min=1).cpu()
 
 
@@ -47,7 +39,6 @@ class LSTMBaseline(BaseModel):
         super().__init__(input_dims, output_dim, hyperparams)
 
         ts_shape = input_dims[0]
-        # ts_shape: (Batch, N_Paths, N_TS_Features, Time)
         self.n_paths = ts_shape[1]
         self.n_ts = ts_shape[2]
         self.max_timesteps = ts_shape[3]
@@ -62,8 +53,6 @@ class LSTMBaseline(BaseModel):
 
         self.lstm_hidden = hp["lstm_hidden"]
 
-        # LSTM input_size is 1 because we process each time-series feature independently 
-        # (flattened B * P * TS) in the current logic.
         self.lstm = nn.LSTM(
             input_size=1,
             hidden_size=self.lstm_hidden,
@@ -85,40 +74,36 @@ class LSTMBaseline(BaseModel):
 
     # -----------------------------------------------------
 
-    def encode_timeseries(self, x_ts: torch.Tensor) -> torch.Tensor:
-        # x_ts: (B, P, TS, T)
+    def encode_timeseries(self, x_ts):
+        # x_ts: (B,P,TS,T)
         B, P, TS, T = x_ts.shape
 
-        # Flatten hierarchy to (N, T) where N = B*P*TS
-        # We process every single time series independently
-        flat_ts = x_ts.view(B * P * TS, T)
-        
-        # Compute lengths on the flattened data
-        lengths = compute_lengths(flat_ts)
+        # add feature dim for LSTM
+        x = x_ts.unsqueeze(-1)  # (B,P,TS,T,1)
+        lengths = _compute_lengths(self, x_ts)
 
-        # Prepare for LSTM
-        # input: (N, T, 1)
-        x = flat_ts.unsqueeze(-1)
+        # flatten hierarchy
+        x = x.view(B * P * TS, T, 1)
+        l = lengths.reshape(B * P * TS)
 
-        # Pack sequence to ignore padding
         packed = nn.utils.rnn.pack_padded_sequence(
             x,
-            lengths,
+            l,
             batch_first=True,
             enforce_sorted=False,
         )
 
-        # Run LSTM
-        # out: PackedSequence
-        # (h_n, c_n): (num_layers, N, hidden)
-        _, (h_n, _) = self.lstm(packed)
+        out, _ = self.lstm(packed)
 
-        # Take last hidden state
-        # h_n[-1] is (N, hidden)
-        pooled = h_n[-1]
+        padded, _ = nn.utils.rnn.pad_packed_sequence(
+            out,
+            batch_first=True,
+            total_length=T,
+        )
 
-        # Reshape back to (B, P * TS * hidden)
-        pooled = pooled.view(B, P * TS * self.lstm_hidden)
+        pooled = masked_mean(padded, l)
+
+        pooled = pooled.view(B, P * TS * pooled.shape[-1])
         return pooled
 
     # -----------------------------------------------------
@@ -128,11 +113,8 @@ class LSTMBaseline(BaseModel):
 
         ts_feat = self.encode_timeseries(x_ts)
 
-        # Flatten path features: (B, P, F_p) -> (B, P*F_p)
-        x_path_flat = x_path.reshape(x_path.size(0), -1)
-
         manual = torch.cat([
-            x_path_flat,
+            x_path.reshape(x_path.size(0), -1),
             x_user
         ], dim=1)
 

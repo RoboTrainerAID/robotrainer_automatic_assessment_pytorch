@@ -6,29 +6,20 @@ from ..base import BaseModel
 
 
 def masked_mean(x: torch.Tensor, lengths: torch.Tensor):
-    """
-    Computes mean over time dimension considering variable lengths.
-    x: (N, C, T) -> (N, C)
-    lengths: (N,)
-    """
     device = x.device
-    # mask: (N, 1, T) - True where t < length
-    mask = torch.arange(x.size(2), device=device)[None, None, :] < lengths[:, None, None]
-    mask = mask.float()
-    
-    x_masked = x * mask
-    # Sum over time (dim 2)
-    summed = x_masked.sum(dim=2)
-    # Divide by lengths
-    return summed / lengths.clamp(min=1).unsqueeze(-1).to(device)
+    mask = torch.arange(x.size(1), device=device)[None, :] < lengths[:, None]
+    mask = mask.float().unsqueeze(-1)
+    x = x * mask
+    return x.sum(1) / lengths.clamp(min=1).unsqueeze(-1)
 
+def _compute_lengths(self, x):
+    # x: (N,T)
 
-def compute_lengths(x: torch.Tensor) -> torch.Tensor:
-    """
-    Computes effective length. x: (N, T)
-    """
     valid = (x.abs() > 1e-8)
+
+    # flip to find first valid from end
     last_valid = valid.flip(1).float().argmax(dim=1)
+
     lengths = x.size(1) - last_valid
     return lengths.clamp(min=1).cpu()
 
@@ -73,26 +64,22 @@ class CNNBaseline(BaseModel):
 
     # -----------------------------------------------------
 
-    def encode_timeseries(self, x_ts: torch.Tensor) -> torch.Tensor:
-        # x_ts: (B, P, TS, T)
+    def encode_timeseries(self, x_ts):
+        # x_ts: (B,P,TS,T)
         B, P, TS, T = x_ts.shape
 
-        # Flatten to compute lengths: (B*P*TS, T)
-        flat_ts = x_ts.view(B * P * TS, T)
-        lengths = compute_lengths(flat_ts)
+        # add channel
+        x = x_ts.unsqueeze(-1)  # (B,P,TS,T,1)
+        lengths = _compute_lengths(self, x_ts)
 
-        # Prepare for Conv1d: (N, C_in, T) -> (B*P*TS, 1, T)
-        x = flat_ts.unsqueeze(1) 
+        # flatten → Conv1d expects (N,C,T)
+        x = x.view(B * P * TS, T, 1).permute(0, 2, 1)
+        l = lengths.reshape(B * P * TS)
 
-        # Apply CNN
-        # feat: (N, C_out, T)
         feat = self.cnn(x)
+        feat = feat.permute(0, 2, 1)
 
-        # Global Average Pooling (masked by length)
-        # pooled: (N, C_out)
-        pooled = masked_mean(feat, lengths)
-
-        # Reshape back: (B, P * TS * C_out)
+        pooled = masked_mean(feat, l)
         pooled = pooled.view(B, P * TS * pooled.shape[-1])
         return pooled
 
@@ -103,10 +90,8 @@ class CNNBaseline(BaseModel):
 
         ts_feat = self.encode_timeseries(x_ts)
 
-        x_path_flat = x_path.reshape(x_path.size(0), -1)
-
         manual = torch.cat([
-            x_path_flat,
+            x_path.reshape(x_path.size(0), -1),
             x_user
         ], dim=1)
 

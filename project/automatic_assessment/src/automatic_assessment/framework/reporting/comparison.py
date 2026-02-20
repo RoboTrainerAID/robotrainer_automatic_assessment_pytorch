@@ -449,7 +449,7 @@ class ExperimentComparison:
 if __name__ == "__main__":
     # Example usage assume running from src root or similar
     # Adjust path as needed during execution
-    results_path = "/workspace/automatic_assessment/experiment_results/multi_objective"
+    results_path = "/workspace/automatic_assessment/experiment_results/first_model_comparison"
     if os.path.exists(results_path):
         comp = ExperimentComparison(results_path)
         comp.plot_multitarget_comparison()

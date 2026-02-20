@@ -198,7 +198,7 @@ def select_multitarget_top_features_lars(X: np.ndarray, y: np.ndarray, top_n_fea
     # Keep original order for stability
     selected_indices.sort()
     
-    tqdm.write(f"[LARS Selection] Total Features: {total_features}, Selected: {len(selected_indices)}.")
+    # tqdm.write(f"[LARS Selection] Total Features: {total_features}, Selected: {len(selected_indices)}.")
     # for rank, (idx, count) in enumerate(most_common):
     #     print(f"  {rank+1}. Feature Index: {idx}, Votes: {count}")
     #     if rank >= min(10, top_n_features - 1):

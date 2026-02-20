@@ -123,7 +123,7 @@ def select_features_by_correlation(X: np.ndarray, y: np.ndarray, correlation_thr
                 
     final_selection = sorted(list(selected_indices))
 
-    tqdm.write(f"[Correlation Selection] Threshold: {correlation_threshold}, Total selected: {len(final_selection)} / {n_features}. per target: {k_per_target}")
+    # tqdm.write(f"[Correlation Selection] Threshold: {correlation_threshold}, Total selected: {len(final_selection)} / {n_features}. per target: {k_per_target}")
 
     # print(f"[Correlation Selection] Threshold: {correlation_threshold}")
     # print(f"  > Features passing threshold (Desired Count): {desired_count} / {n_features}")

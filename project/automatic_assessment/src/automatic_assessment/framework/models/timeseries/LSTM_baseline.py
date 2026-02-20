@@ -16,16 +16,15 @@ def masked_mean(x: torch.Tensor, lengths: torch.Tensor):
     x = x * mask
     return x.sum(1) / lengths.clamp(min=1).unsqueeze(-1)
 
-def _compute_lengths(self, x):
-    # x: (N,T)
 
-    valid = (x.abs() > 1e-8)
+def compute_lengths_flat(x_flat: torch.Tensor):
+    # x_flat: (N,T)
+    valid = (x_flat.abs() > 1e-8)
 
-    # flip to find first valid from end
+    # last valid index from end
     last_valid = valid.flip(1).float().argmax(dim=1)
-
-    lengths = x.size(1) - last_valid
-    return lengths.clamp(min=1).cpu()
+    lengths = x_flat.size(1) - last_valid
+    return lengths.clamp(min=1)
 
 
 # =========================================================
@@ -75,16 +74,17 @@ class LSTMBaseline(BaseModel):
     # -----------------------------------------------------
 
     def encode_timeseries(self, x_ts):
-        # x_ts: (B,P,TS,T)
+        # (B,P,TS,T)
         B, P, TS, T = x_ts.shape
 
-        # add feature dim for LSTM
-        x = x_ts.unsqueeze(-1)  # (B,P,TS,T,1)
-        lengths = _compute_lengths(self, x_ts)
+        # flatten hierarchy → (N,T)
+        x_flat = x_ts.view(B * P * TS, T)
 
-        # flatten hierarchy
-        x = x.view(B * P * TS, T, 1)
-        l = lengths.reshape(B * P * TS)
+        # compute lengths correctly
+        l = compute_lengths_flat(x_flat).cpu()
+
+        # add feature dim → (N,T,1)
+        x = x_flat.unsqueeze(-1)
 
         packed = nn.utils.rnn.pack_padded_sequence(
             x,
@@ -120,6 +120,8 @@ class LSTMBaseline(BaseModel):
 
         fused = torch.cat([ts_feat, manual], dim=1)
         return self.regressor(fused)
+
+    # OPTUNA unchanged
 
     # =====================================================
     # OPTUNA

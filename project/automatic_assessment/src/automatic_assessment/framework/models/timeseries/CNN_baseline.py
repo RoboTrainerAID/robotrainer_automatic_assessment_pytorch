@@ -12,16 +12,12 @@ def masked_mean(x: torch.Tensor, lengths: torch.Tensor):
     x = x * mask
     return x.sum(1) / lengths.clamp(min=1).unsqueeze(-1)
 
-def _compute_lengths(self, x):
-    # x: (N,T)
 
-    valid = (x.abs() > 1e-8)
-
-    # flip to find first valid from end
+def compute_lengths_flat(x_flat: torch.Tensor):
+    valid = (x_flat.abs() > 1e-8)
     last_valid = valid.flip(1).float().argmax(dim=1)
-
-    lengths = x.size(1) - last_valid
-    return lengths.clamp(min=1).cpu()
+    lengths = x_flat.size(1) - last_valid
+    return lengths.clamp(min=1)
 
 
 class CNNBaseline(BaseModel):
@@ -42,7 +38,6 @@ class CNNBaseline(BaseModel):
         self.f_user = user_shape[1]
 
         hp = hyperparams
-
         channels = hp["cnn_channels"]
 
         self.cnn = nn.Sequential(
@@ -65,21 +60,18 @@ class CNNBaseline(BaseModel):
     # -----------------------------------------------------
 
     def encode_timeseries(self, x_ts):
-        # x_ts: (B,P,TS,T)
         B, P, TS, T = x_ts.shape
 
-        # add channel
-        x = x_ts.unsqueeze(-1)  # (B,P,TS,T,1)
-        lengths = _compute_lengths(self, x_ts)
+        x_flat = x_ts.view(B * P * TS, T)
+        l = compute_lengths_flat(x_flat)
 
-        # flatten → Conv1d expects (N,C,T)
-        x = x.view(B * P * TS, T, 1).permute(0, 2, 1)
-        l = lengths.reshape(B * P * TS)
+        x = x_flat.unsqueeze(1)  # (N,1,T)
 
         feat = self.cnn(x)
         feat = feat.permute(0, 2, 1)
 
         pooled = masked_mean(feat, l)
+
         pooled = pooled.view(B, P * TS * pooled.shape[-1])
         return pooled
 

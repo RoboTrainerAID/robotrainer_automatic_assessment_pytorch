@@ -103,7 +103,7 @@ class LSTMBaseline(BaseModel):
             total_length=T,
         )
 
-        pooled = masked_mean(padded, l)
+        pooled = masked_mean(padded, l.to(padded.device))
 
         pooled = pooled.view(B, P * pooled.shape[-1])
         return pooled
@@ -146,13 +146,13 @@ class LSTMBaseline(BaseModel):
     @staticmethod
     def get_default_parameters() -> Dict[str, Any]:
         return {
-            "lstm_hidden": 64,
+            "lstm_hidden": 8,
             "lstm_layers": 1,
             "dropout_lstm": 0.1,
-            "regressor_dim": 256,
+            "regressor_dim": 128,
             "dropout_reg": 0.2,
             "lr": 2e-4,
             "weight_decay": 1e-3,
             "batch_size": 6,
-            "correlation_threshold": 0.5
+            "correlation_threshold": 0.3
         }

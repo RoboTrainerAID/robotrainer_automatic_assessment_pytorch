@@ -106,7 +106,7 @@ class CNNBaseline(BaseModel):
             "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 1e-4, 1e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
-            "correlation_threshold": trial.suggest_float("correlation_threshold", 0.4, 0.8, step=0.01)
+            "correlation_threshold": trial.suggest_float("correlation_threshold", 0.1, 0.4, step=0.01)
         }
 
     @staticmethod
@@ -118,5 +118,6 @@ class CNNBaseline(BaseModel):
             "lr": 2e-4,
             "weight_decay": 1e-3,
             "batch_size": 6,
-            "correlation_threshold": 0.5
+            # "correlation_threshold": 0.1
+            "n_path_features": 50
         }

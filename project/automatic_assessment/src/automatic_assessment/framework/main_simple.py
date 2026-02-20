@@ -93,7 +93,7 @@ def main():
             # models_to_test = [MLPSharedEncoder, MLPPathSpecific, MLPBaseline]
             # models_to_test = [HierarchicalTimeseriesLSTM]
             # models_to_test = [LinearReg, ElasticNetReg, SVRReg, RandomForestReg, SGDReg, MLPBaseline]
-            models_to_test = [LSTMBaseline, CNNBaseline]
+            models_to_test = [CNNBaseline, LSTMBaseline]
 
             
             for model_class in models_to_test:

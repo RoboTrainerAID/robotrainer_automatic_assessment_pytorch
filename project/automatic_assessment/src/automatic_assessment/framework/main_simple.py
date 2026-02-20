@@ -17,6 +17,8 @@ from automatic_assessment.framework.models.mlp_path_specific import MLPPathSpeci
 from automatic_assessment.framework.models.mlp_baseline import MLPBaseline
 from automatic_assessment.framework.models.sklearn.sklearn_models import LinearReg, ElasticNetReg, SVRReg, RandomForestReg, SGDReg
 from automatic_assessment.framework.models.timeseries.LSTM import HierarchicalTimeseriesLSTM
+from automatic_assessment.framework.models.timeseries.LSTM_baseline import LSTMBaseline
+from automatic_assessment.framework.models.timeseries.CNN_baseline import CNNBaseline
 
 
 def main():
@@ -89,8 +91,9 @@ def main():
             # List of models to test
             # models_to_test = [SimpleMLPRegressor, ElasticNetModel, LinearRegressionModel, RandomForestLikeMLP]
             # models_to_test = [MLPSharedEncoder, MLPPathSpecific, MLPBaseline]
-            models_to_test = [HierarchicalTimeseriesLSTM, MLPPathSpecific]
+            # models_to_test = [HierarchicalTimeseriesLSTM]
             # models_to_test = [LinearReg, ElasticNetReg, SVRReg, RandomForestReg, SGDReg, MLPBaseline]
+            models_to_test = [LSTMBaseline, CNNBaseline]
 
             
             for model_class in models_to_test:

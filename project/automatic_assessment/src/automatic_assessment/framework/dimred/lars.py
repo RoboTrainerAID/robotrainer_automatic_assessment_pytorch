@@ -134,8 +134,17 @@ def select_top_sources_lars(X: pd.DataFrame, y: pd.Series, top_k_sources: int = 
 def select_multitarget_top_features_lars(X: np.ndarray, y: np.ndarray, top_n_features: int = 20) -> List[int]:
     """
     Runs LARS on each target independently on RAW TENSORS (as numpy).
-    Ranks individual features by how many targets selected them.
-    X: (N_samples, N_paths, N_features)
+    
+    Selection strategy (two-phase):
+      Phase 1 — Per-target guarantee:
+        Reserve half the budget (N//2) and distribute equally across targets.
+        For each target, take its top (N//2 // n_targets) features by LARS entry order.
+        This guarantees that every target's most important features are represented.
+      Phase 2 — Global vote fill-up:
+        Fill the remaining slots (up to N) from a global ranking of all features
+        scored by how many targets selected them via LARS.
+    
+    X: (N_samples, N_paths, N_features) or (N_samples, N_features)
     y: (N_samples, N_targets)
     
     Returns: List[int] of indices of selected features.
@@ -143,69 +152,105 @@ def select_multitarget_top_features_lars(X: np.ndarray, y: np.ndarray, top_n_fea
     
     # Handle X shape
     if X.ndim == 3:
-        # X is (N, Paths, Features). 
-        # Strategy: Flatten Paths into Samples dimension to treat each path as an instance
         N_samples, N_paths, N_feats = X.shape
         X_flat = X.reshape(N_samples * N_paths, N_feats)
-        
-        # Prepare y
-        # y is (N, T). Need to repeat for each path.
-        # Repeat each row P times.
-        y_flat = np.repeat(y, N_paths, axis=0) # (N*P, T)
+        y_flat = np.repeat(y, N_paths, axis=0)  # (N*P, T)
     else:
-        # Assume (N, F)
         X_flat = X
         y_flat = y
 
-    # Assumes input is already normalized/standardized
-        
-    feature_votes = Counter()
     total_features = X_flat.shape[1]
     n_targets = y_flat.shape[1]
     
-    # 1. Loop through each target
+    # Budget
+    per_target_budget = max(1, round((top_n_features / 2) / n_targets), 0)  # Ensure at least 1 per target
+    
+    # Storage
+    per_target_top = {}      # {target_idx: [ordered list of feature indices]}
+    feature_votes = Counter()
+    
+    # -------------------------------------------------------
+    # Run LARS for each target
+    # -------------------------------------------------------
     for t_idx in range(n_targets):
         target_vals = y_flat[:, t_idx]
         
-        # skip if target has NaNs
-        if np.isnan(target_vals).any(): 
+        if np.isnan(target_vals).any():
+            per_target_top[t_idx] = []
             continue
             
-        # Run LARS Path
-        # method='lasso' is standard LARS-LASSO
-        # Returns: alphas, active, coefs
-        # active is list of indices
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=ConvergenceWarning)
                 _, active_indices, _ = lars_path(X_flat, target_vals, method='lasso')
             
-            # Take Top K unique features for THIS target
-            subset_indices = active_indices[:(top_n_features // 2)] # Heuristic: look slightly deeper
+            # Store ordered active indices for this target
+            per_target_top[t_idx] = list(active_indices)
             
-            for feat_idx in subset_indices:
+            # Count votes from a reasonable depth
+            vote_depth = min(top_n_features//2, len(active_indices))
+            for feat_idx in active_indices[:vote_depth]:
                 feature_votes[feat_idx] += 1
                 
         except Exception as e:
-            # print(f"Warning: LARS failed for target {t_idx}: {e}")
-            pass
+            per_target_top[t_idx] = []
 
-    # 2. Global Ranking
-    most_common = feature_votes.most_common(top_n_features)
+    # -------------------------------------------------------
+    # Phase 1: Per-target guaranteed selection
+    # -------------------------------------------------------
+    selected = set()
     
-    # Extract just the indices
-    selected_indices = [idx for idx, count in most_common]
-    # Keep original order for stability
-    selected_indices.sort()
+    for t_idx in range(n_targets):
+        top_for_target = per_target_top.get(t_idx, [])
+        added = 0
+        for feat_idx in top_for_target:
+            if added >= per_target_budget:
+                break
+            selected.add(feat_idx)
+            added += 1
+    
+    phase1_count = len(selected)
+    
+    # -------------------------------------------------------
+    # Phase 2: Fill up from global vote ranking
+    # -------------------------------------------------------
+    remaining_slots = top_n_features - len(selected)
+    
+    if remaining_slots > 0:
+        # Sort by votes descending, then by index for stability
+        ranked_by_votes = sorted(feature_votes.keys(), 
+                                  key=lambda idx: (-feature_votes[idx], idx))
+        
+        for feat_idx in ranked_by_votes:
+            if len(selected) >= top_n_features:
+                break
+            if feat_idx not in selected:
+                selected.add(feat_idx)
+    
+    # Sort for stable ordering
+    selected_indices = sorted(selected)
+    
+    # -------------------------------------------------------
+    # Reporting
+    # -------------------------------------------------------
+    phase2_count = len(selected_indices) - phase1_count
     
     # tqdm.write(f"[LARS Selection] Total Features: {total_features}, Selected: {len(selected_indices)}.")
-    # for rank, (idx, count) in enumerate(most_common):
-    #     print(f"  {rank+1}. Feature Index: {idx}, Votes: {count}")
-    #     if rank >= min(10, top_n_features - 1):
-    #         break
+    # tqdm.write(f"  Phase 1 (per-target top {per_target_budget}): {phase1_count} unique features")
+    # tqdm.write(f"  Phase 2 (global vote fill-up):  {phase2_count} additional features")
+    
+    # Show per-target contribution
+    # for t_idx in range(n_targets):
+    #     top_for_target = per_target_top.get(t_idx, [])[:per_target_budget]
+    #     tqdm.write(f"  Target {t_idx}: guaranteed features = {top_for_target}")
+    
+    # Show top features by vote
+    # tqdm.write(f"\n  Top features by vote count:")
+    # for rank, (idx, count) in enumerate(feature_votes.most_common(min(70, len(selected_indices)))):
+    #     marker = "*" if idx in selected_indices else " "
+    #     tqdm.write(f"   {marker} Feature {idx}: {count} votes")
 
     return selected_indices
-
 
 
 # ================= USAGE EXAMPLE =================

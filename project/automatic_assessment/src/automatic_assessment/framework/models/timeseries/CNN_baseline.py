@@ -116,12 +116,12 @@ class CNNBaseline(BaseModel):
     @staticmethod
     def get_hyperparameter_space(trial) -> Dict[str, Any]:
         return {
-            "cnn_channels": trial.suggest_categorical("cnn_channels", [8, 16, 32]),
-            "path_dim": trial.suggest_categorical("path_dim", [8, 16, 32]),
-            "regressor_dim": trial.suggest_categorical("regressor_dim", [64, 128, 256]),
-            "dropout_reg": trial.suggest_float("dropout_reg", 0.0, 0.4),
+            "cnn_channels": trial.suggest_categorical("cnn_channels", [4, 8, 12]),
+            "path_dim": trial.suggest_categorical("path_dim", [8, 12, 16, 24]),
+            "regressor_dim": trial.suggest_categorical("regressor_dim", [96, 128, 192]),
+            "dropout_reg": trial.suggest_float("dropout_reg", 0.2, 0.5),
             "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
-            "weight_decay": trial.suggest_float("weight_decay", 1e-4, 1e-2, log=True),
+            "weight_decay": trial.suggest_float("weight_decay", 1e-3, 5e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
             # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.1, 0.4, step=0.01),
             "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5)
@@ -130,13 +130,13 @@ class CNNBaseline(BaseModel):
     @staticmethod
     def get_default_parameters() -> Dict[str, Any]:
         return {
-            "cnn_channels": 32,
-            "path_dim": 32,
-            "regressor_dim": 256,
-            "dropout_reg": 0.2,
-            "lr": 2e-4,
-            "weight_decay": 1e-3,
+            "cnn_channels": 8,
+            "path_dim": 16,
+            "regressor_dim": 128,
+            "dropout_reg": 0.39377583985758274,
+            "lr": 0.0008957476788727834,
+            "weight_decay": 0.00954951015873937,
             "batch_size": 6,
             # "correlation_threshold": 0.1
-            "n_path_features": 50
+            "n_path_features": 20
         }

@@ -49,6 +49,27 @@ class SavingModule:
             yaml.dump(full_config, f, sort_keys=False)
 
         # ---------------------------------------------------------
+        # 1b. Save Tuning Trials & Param Importances
+        # ---------------------------------------------------------
+        if fold_data:
+            # Tuning trials (Optuna trials dataframe)
+            tuning_trials = fold_data[0].get('tuning_trials')
+            if tuning_trials is not None:
+                if isinstance(tuning_trials, pd.DataFrame) and not tuning_trials.empty:
+                    tuning_trials.to_csv(os.path.join(self.output_dir, "tuning_trials.csv"), index=False)
+            
+            # Param importances (dict from Optuna)
+            param_importances = fold_data[0].get('param_importances')
+            if param_importances is not None and isinstance(param_importances, dict) and len(param_importances) > 0:
+                # Convert to DataFrame with 'parameter' and 'importance' columns
+                imp_df = pd.DataFrame([
+                    {"parameter": k, "importance": v}
+                    for k, v in param_importances.items()
+                ])
+                imp_df = imp_df.sort_values('importance', ascending=False).reset_index(drop=True)
+                imp_df.to_csv(os.path.join(self.output_dir, "param_importances.csv"), index=False)
+
+        # ---------------------------------------------------------
         # 2. Save Learning Curve (Debugging)
         # ---------------------------------------------------------
         # FIX: Pipeline stores this as 'history', not 'learning_curve'

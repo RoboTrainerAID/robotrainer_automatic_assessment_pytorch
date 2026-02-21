@@ -59,8 +59,9 @@ def main():
     # List of different target combinations
     # targets_to_test = [clusters] + singles_list
     # targets_to_test = [all, clusters] + singles_list
-    # targets_to_test = [clusters]  # For quick testing
-    targets_to_test = [best_performing_targets]
+    # targets_to_test = [clusters]
+    targets_to_test = [all]
+    # targets_to_test = [best_performing_targets]
 
     # augmentation_range = [0, 1, 2, 3, 4, 5]
     augmentation_range = [0]
@@ -82,10 +83,10 @@ def main():
             config = {
                 "epochs": 50,
                 "hyperparameter_mode": 'optimize', # 'default', 'optimize'
-                "n_trials": 30,  # Number of Optuna trials
+                "n_trials": 50,  # Number of Optuna trials
                 "targets": target_set,
                 "augmentation_ratio": ratio,
-                "note": "First Experiment with Test",
+                "note": "Experiment with all targets",
             }
             
             # List of models to test
@@ -93,7 +94,8 @@ def main():
             # models_to_test = [MLPSharedEncoder, MLPPathSpecific, MLPBaseline]
             # models_to_test = [HierarchicalTimeseriesLSTM]
             # models_to_test = [LinearReg, ElasticNetReg, SVRReg, RandomForestReg, SGDReg, MLPBaseline]
-            models_to_test = [CNNBaseline, LSTMBaseline]
+            # models_to_test = [CNNBaseline, LSTMBaseline]
+            models_to_test = [CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline, LinearReg, ElasticNetReg, SVRReg, RandomForestReg, SGDReg, MLPBaseline]
 
             
             for model_class in models_to_test:

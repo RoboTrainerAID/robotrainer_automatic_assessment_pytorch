@@ -65,8 +65,11 @@ class LSTMBaseline(BaseModel):
 
         self.path_bottleneck = nn.Sequential(
             nn.Linear(self.lstm_hidden + self.f_path, self.path_dim),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.Dropout(hp["dropout_path"])
         )
+
+        self.path_aggregation = hp["path_aggregation"]
 
         self.path_attention = nn.Sequential(
             nn.Linear(self.path_dim, self.path_dim),
@@ -130,10 +133,13 @@ class LSTMBaseline(BaseModel):
         path_combined = torch.cat([ts_paths, x_path], dim=-1)   # (B,P,Hts+f_path)
         path_feat = self.path_bottleneck(path_combined)         # (B,P,path_dim)
 
-        att = self.path_attention(path_feat)
-        att = torch.softmax(att, dim=1)
+        if self.path_aggregation == "mean":
+            path_global = path_feat.mean(dim=1)
+        else:
+            att = self.path_attention(path_feat)
+            att = torch.softmax(att, dim=1)
 
-        path_global = (path_feat * att).sum(dim=1)               # (B,path_dim)
+            path_global = (path_feat * att).sum(dim=1)               # (B,path_dim)
 
         fused = torch.cat([path_global, x_user], dim=1)
 
@@ -146,27 +152,30 @@ class LSTMBaseline(BaseModel):
     @staticmethod
     def get_hyperparameter_space(trial) -> Dict[str, Any]:
         return {
-            "lstm_hidden": trial.suggest_categorical("lstm_hidden", [8, 16, 32]),
+            "lstm_hidden": trial.suggest_categorical("lstm_hidden", [12, 18, 24]),
             "lstm_layers": trial.suggest_int("lstm_layers", 1, 1),
             "dropout_lstm": trial.suggest_float("dropout_lstm", 0.0, 0.3),
-            "path_dim": trial.suggest_categorical("path_dim", [8, 16, 32]),
-            "regressor_dim": trial.suggest_categorical("regressor_dim", [64, 128, 256]),
-            "dropout_reg": trial.suggest_float("dropout_reg", 0.0, 0.4),
+            "path_dim": trial.suggest_categorical("path_dim", [8, 12, 16]),
+            "dropout_path": trial.suggest_float("dropout_path", 0.1, 0.4),
+            "regressor_dim": trial.suggest_categorical("regressor_dim", [32, 48, 64]),
+            "dropout_reg": trial.suggest_float("dropout_reg", 0.1, 0.4),
             "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 1e-4, 1e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
             # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.1, 0.4, step=0.01),
-            "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5)
+            "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
+            "path_aggregation": trial.suggest_categorical("path_aggregation", ["attention", "mean"])
         }
 
     @staticmethod
     def get_default_parameters() -> Dict[str, Any]:
         return {
-            "lstm_hidden": 32,
+            "lstm_hidden": 18,
             "lstm_layers": 1,
             "dropout_lstm": 0.1,
-            "path_dim": 32,
-            "regressor_dim": 256,
+            "path_dim": 12,
+            "dropout_path": 0.2,
+            "regressor_dim": 48,
             "dropout_reg": 0.2,
             "lr": 2e-4,
             "weight_decay": 1e-3,

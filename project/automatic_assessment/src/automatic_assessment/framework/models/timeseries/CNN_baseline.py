@@ -47,12 +47,15 @@ class CNNBaseline(BaseModel):
             nn.ReLU(),
         )
 
-        self.path_dim = hyperparams["path_dim"]
+        self.path_dim = hp["path_dim"]
 
         self.path_bottleneck = nn.Sequential(
             nn.Linear(channels + self.f_path, self.path_dim),
-            nn.ReLU()
+            nn.ReLU(),
+            nn.Dropout(hp["dropout_path"])
         )
+
+        self.path_aggregation = hp["path_aggregation"]
 
         self.path_attention = nn.Sequential(
             nn.Linear(self.path_dim, self.path_dim),
@@ -100,10 +103,13 @@ class CNNBaseline(BaseModel):
         path_combined = torch.cat([ts_paths, x_path], dim=-1)
         path_feat = self.path_bottleneck(path_combined)
 
-        att = self.path_attention(path_feat)
-        att = torch.softmax(att, dim=1)
+        if self.path_aggregation == "mean":
+            path_global = path_feat.mean(dim=1)
+        else:
+            att = self.path_attention(path_feat)
+            att = torch.softmax(att, dim=1)
 
-        path_global = (path_feat * att).sum(dim=1)
+            path_global = (path_feat * att).sum(dim=1)
 
         fused = torch.cat([path_global, x_user], dim=1)
 
@@ -117,26 +123,29 @@ class CNNBaseline(BaseModel):
     def get_hyperparameter_space(trial) -> Dict[str, Any]:
         return {
             "cnn_channels": trial.suggest_categorical("cnn_channels", [4, 8, 12]),
-            "path_dim": trial.suggest_categorical("path_dim", [8, 12, 16, 24]),
-            "regressor_dim": trial.suggest_categorical("regressor_dim", [96, 128, 192]),
-            "dropout_reg": trial.suggest_float("dropout_reg", 0.2, 0.5),
+            "path_dim": trial.suggest_categorical("path_dim", [8, 12, 16]),
+            "dropout_path": trial.suggest_float("dropout_path", 0.1, 0.4),
+            "regressor_dim": trial.suggest_categorical("regressor_dim", [32, 48, 64]),
+            "dropout_reg": trial.suggest_float("dropout_reg", 0.1, 0.4),
             "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 1e-3, 5e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
             # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.1, 0.4, step=0.01),
-            "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5)
+            "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
+            "path_aggregation": trial.suggest_categorical("path_aggregation", ["attention", "mean"])
         }
 
     @staticmethod
     def get_default_parameters() -> Dict[str, Any]:
         return {
             "cnn_channels": 8,
-            "path_dim": 16,
-            "regressor_dim": 128,
-            "dropout_reg": 0.39377583985758274,
+            "path_dim": 12,
+            "dropout_path": 0.2,
+            "regressor_dim": 48,
+            "dropout_reg": 0.2,
             "lr": 0.0008957476788727834,
             "weight_decay": 0.00954951015873937,
             "batch_size": 6,
             # "correlation_threshold": 0.1
-            "n_path_features": 20
+            "n_path_features": 50
         }

@@ -129,13 +129,13 @@ class MLPSharedEncoder(BaseModel):
             "lr": trial.suggest_float("lr", 1e-4, 1e-2, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
-            "embed_dim": trial.suggest_categorical("embed_dim", [4, 8, 16]),
-            "hidden_dim": trial.suggest_categorical("hidden_dim", [8, 16, 32]),
-            "reg_hidden_dim": trial.suggest_categorical("reg_hidden_dim", [16, 32, 64]),
+            "embed_dim": trial.suggest_categorical("embed_dim", [8, 16, 24, 32]),
+            "hidden_dim": trial.suggest_categorical("hidden_dim", [4, 8, 16]),
+            "reg_hidden_dim": trial.suggest_categorical("reg_hidden_dim", [16, 32, 48]),
             "dropout": trial.suggest_float("dropout", 0.0, 0.3),
-            "pooling": trial.suggest_categorical("pooling", ["attention"]), #"mean", 
-            # "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
-            "correlation_threshold": trial.suggest_float("correlation_threshold", 0.4, 0.8, step=0.01)
+            "pooling": trial.suggest_categorical("pooling", ["mean","attention"]), 
+            "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
+            # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.4, 0.8, step=0.01)
         }
 
     @staticmethod
@@ -150,5 +150,5 @@ class MLPSharedEncoder(BaseModel):
             "reg_hidden_dim": 32,
             "dropout": 0.24441804653714266,
             "pooling": "attention",
-            "n_path_features": 20,
+            "n_path_features": 50,
         }

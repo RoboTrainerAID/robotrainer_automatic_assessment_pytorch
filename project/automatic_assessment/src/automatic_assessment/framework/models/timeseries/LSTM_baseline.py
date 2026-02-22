@@ -157,6 +157,7 @@ class LSTMBaseline(BaseModel):
             "dropout_lstm": trial.suggest_float("dropout_lstm", 0.0, 0.3),
             "path_dim": trial.suggest_categorical("path_dim", [8, 12, 16]),
             "dropout_path": trial.suggest_float("dropout_path", 0.1, 0.4),
+            "path_aggregation": trial.suggest_categorical("path_aggregation", ["attention", "mean"]),
             "regressor_dim": trial.suggest_categorical("regressor_dim", [32, 48, 64]),
             "dropout_reg": trial.suggest_float("dropout_reg", 0.1, 0.4),
             "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
@@ -164,7 +165,6 @@ class LSTMBaseline(BaseModel):
             "batch_size": trial.suggest_categorical("batch_size", [6]),
             # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.1, 0.4, step=0.01),
             "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
-            "path_aggregation": trial.suggest_categorical("path_aggregation", ["attention", "mean"])
         }
 
     @staticmethod
@@ -175,11 +175,12 @@ class LSTMBaseline(BaseModel):
             "dropout_lstm": 0.1,
             "path_dim": 12,
             "dropout_path": 0.2,
+            "path_aggregation": "mean",
             "regressor_dim": 48,
             "dropout_reg": 0.2,
             "lr": 2e-4,
             "weight_decay": 1e-3,
             "batch_size": 6,
             # "correlation_threshold": 0.3,
-            "n_path_features": 50
+            "n_path_features": 50,
         }

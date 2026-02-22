@@ -60,8 +60,8 @@ def main():
     # targets_to_test = [clusters] + singles_list
     # targets_to_test = [all, clusters] + singles_list
     # targets_to_test = [clusters]
-    targets_to_test = [all]
-    # targets_to_test = [best_performing_targets]
+    # targets_to_test = [all]
+    targets_to_test = singles_list + [best_performing_targets]
 
     # augmentation_range = [0, 1, 2, 3, 4, 5]
     augmentation_range = [0]
@@ -81,12 +81,12 @@ def main():
             X_train, y_train, users_train, feature_names = dataset_train.get_all()
             
             config = {
-                "epochs": 50,
+                "epochs": 30,
                 "hyperparameter_mode": 'optimize', # 'default', 'optimize'
-                "n_trials": 50,  # Number of Optuna trials
+                "n_trials": 30,  # Number of Optuna trials
                 "targets": target_set,
                 "augmentation_ratio": ratio,
-                "note": "Experiment with all targets",
+                "note": "Single targets comparison",
             }
             
             # List of models to test
@@ -95,7 +95,8 @@ def main():
             # models_to_test = [HierarchicalTimeseriesLSTM]
             # models_to_test = [LinearReg, ElasticNetReg, SVRReg, RandomForestReg, SGDReg, MLPBaseline]
             # models_to_test = [CNNBaseline, LSTMBaseline]
-            models_to_test = [CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline, LinearReg, ElasticNetReg, SVRReg, RandomForestReg, SGDReg, MLPBaseline]
+            # models_to_test = [LSTMBaseline]
+            models_to_test = [CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline, LinearReg, ElasticNetReg, SVRReg, RandomForestReg]
 
             
             for model_class in models_to_test:

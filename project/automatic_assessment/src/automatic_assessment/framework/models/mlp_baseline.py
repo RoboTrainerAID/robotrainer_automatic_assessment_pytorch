@@ -100,8 +100,8 @@ class MLPBaseline(BaseModel):
             ),
 
             "dropout": trial.suggest_float("dropout", 0.0, 0.4),
-            # "n_path_features": trial.suggest_int("n_path_features", 100, 500, step=10),
-            "correlation_threshold": trial.suggest_float("correlation_threshold", 0.4, 0.8, step=0.01)
+            "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
+            # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.4, 0.8, step=0.01)
         }
 
     @staticmethod
@@ -112,7 +112,7 @@ class MLPBaseline(BaseModel):
             "hidden_dim": 64,
             "shrink_factor": 0.75,
             "dropout": 0.1,
-            # "n_path_features": 100,
-            "correlation_threshold": 0.5
+            "n_path_features": 50,
+            # "correlation_threshold": 0.5
         }
 

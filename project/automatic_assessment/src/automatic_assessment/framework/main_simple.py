@@ -19,6 +19,11 @@ from automatic_assessment.framework.models.sklearn.sklearn_models import LinearR
 from automatic_assessment.framework.models.timeseries.LSTM import HierarchicalTimeseriesLSTM
 from automatic_assessment.framework.models.timeseries.LSTM_baseline import LSTMBaseline
 from automatic_assessment.framework.models.timeseries.CNN_baseline import CNNBaseline
+from automatic_assessment.framework.models.timeseries.BASE_baseline import BASEBaseline
+from automatic_assessment.framework.models.mlp_path_shared_flat import MLPSharedEncoderFLAT
+from automatic_assessment.framework.models.timeseries.BASE_baseline_flat import BASEBaselineFLAT
+from automatic_assessment.framework.models.timeseries.CNN_baseline_no_embedding import CNNBaselineNOEMBED
+from automatic_assessment.framework.models.timeseries.CNN_baseline_no_embedding_flat import CNNBaselineNOEMBEDFLAT
 
 
 def main():
@@ -56,17 +61,13 @@ def main():
         'Figure 8 Walk', 'Ruler Drop Test'
     ]
 
-    rest = ['Tandem Walk', 'Figure 8 Walk', 'Jumping Sideways', 'Throwing Beanbag at Target',
-        'Tapping Test', 'Ruler Drop Test'
-    ]
-
     # List of different target combinations
     # targets_to_test = [clusters] + singles_list
     # targets_to_test = [all, clusters] + singles_list
     # targets_to_test = [clusters]
     # targets_to_test = [all]
     # targets_to_test = [all] + [best_performing_targets] + singles_list
-    targets_to_test = rest
+    targets_to_test = [best_performing_targets]
 
     # augmentation_range = [0, 1, 2, 3, 4, 5]
     augmentation_range = [0]
@@ -88,7 +89,7 @@ def main():
             config = {
                 "epochs": 30,
                 "hyperparameter_mode": 'optimize', # 'default', 'optimize'
-                "n_trials": 30,  # Number of Optuna trials
+                "n_trials": 50,  # Number of Optuna trials
                 "targets": target_set,
                 "augmentation_ratio": ratio,
                 "note": "Single targets comparison",
@@ -100,8 +101,9 @@ def main():
             # models_to_test = [HierarchicalTimeseriesLSTM]
             # models_to_test = [LinearReg, ElasticNetReg, SVRReg, RandomForestReg, SGDReg, MLPBaseline]
             # models_to_test = [CNNBaseline, LSTMBaseline]
-            models_to_test = [LSTMBaseline]
+            # models_to_test = [LSTMBaseline]
             # models_to_test = [CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline, LinearReg, ElasticNetReg, SVRReg, RandomForestReg]
+            models_to_test = [BASEBaseline, MLPSharedEncoderFLAT, BASEBaselineFLAT, CNNBaselineNOEMBED, CNNBaselineNOEMBEDFLAT]
 
             
             for model_class in models_to_test:

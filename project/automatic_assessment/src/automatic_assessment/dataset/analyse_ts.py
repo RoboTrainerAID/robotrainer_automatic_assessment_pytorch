@@ -624,7 +624,7 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
                 # MIRROR X AXIS (Transform data to positive coordinates)
                 plot_df["robot_pos_x"] *= -1
 
-        plt.figure(figsize=(10, 4))
+        plt.figure(figsize=(8, 4))
         ax = plt.gca()
 
         # Plot Scenario Path (Shifted & Mirrored)
@@ -770,6 +770,7 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
 
         # Removed invert_xaxis() as data is now manually mirrored
         # ax.invert_xaxis()
+        plt.tight_layout()
 
         filename = f"scenario_overlay_{sensor_col}.png" if sensor_col else "scenario_overlay.png"
         output_path = os.path.join("/workspace/automatic_assessment/figures/dataset", filename)
@@ -795,8 +796,8 @@ if __name__ == "__main__":
     dataset = loader.load(dataset_path)
     
     # 2. Select User and Path for Analysis using IDs (Integers)
-    target_user_id = 12  
-    target_path_id = 9   
+    target_user_id = 12 # 18, 12
+    target_path_id = 14   
     
     path_data = dataset[target_user_id][target_path_id]
 
@@ -820,9 +821,10 @@ if __name__ == "__main__":
     parsed_data = parse_scenario(raw_scenario)
     
     # Calculate POIs
-    sensor_column = "user_power"
+    sensor_column = "hrv"
     scen_pois = find_scenario_pois(parsed_data, path_data)
-    sens_pois = find_sensor_pois(path_data, sensor_column)
+    # sens_pois = find_sensor_pois(path_data, sensor_column)
+    sens_pois = [] 
     
     plot_scenario_with_robot(parsed_data, path_data, sensor_col=sensor_column, 
                                 scenario_pois=scen_pois, sensor_pois=sens_pois)

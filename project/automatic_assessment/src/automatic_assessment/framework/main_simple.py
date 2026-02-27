@@ -56,12 +56,17 @@ def main():
         'Figure 8 Walk', 'Ruler Drop Test'
     ]
 
+    rest = ['Tandem Walk', 'Figure 8 Walk', 'Jumping Sideways', 'Throwing Beanbag at Target',
+        'Tapping Test', 'Ruler Drop Test'
+    ]
+
     # List of different target combinations
     # targets_to_test = [clusters] + singles_list
     # targets_to_test = [all, clusters] + singles_list
     # targets_to_test = [clusters]
     # targets_to_test = [all]
-    targets_to_test = singles_list + [best_performing_targets]
+    # targets_to_test = [all] + [best_performing_targets] + singles_list
+    targets_to_test = rest
 
     # augmentation_range = [0, 1, 2, 3, 4, 5]
     augmentation_range = [0]
@@ -95,8 +100,8 @@ def main():
             # models_to_test = [HierarchicalTimeseriesLSTM]
             # models_to_test = [LinearReg, ElasticNetReg, SVRReg, RandomForestReg, SGDReg, MLPBaseline]
             # models_to_test = [CNNBaseline, LSTMBaseline]
-            # models_to_test = [LSTMBaseline]
-            models_to_test = [CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline, LinearReg, ElasticNetReg, SVRReg, RandomForestReg]
+            models_to_test = [LSTMBaseline]
+            # models_to_test = [CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline, LinearReg, ElasticNetReg, SVRReg, RandomForestReg]
 
             
             for model_class in models_to_test:

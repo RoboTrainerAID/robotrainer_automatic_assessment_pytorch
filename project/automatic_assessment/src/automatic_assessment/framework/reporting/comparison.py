@@ -8,14 +8,18 @@ from typing import List, Dict, Optional, Any
 import numpy as np
 
 class ExperimentComparison:
-    def __init__(self, experiments_root_path: str):
+    def __init__(self, experiments_root_path: str, split: str = "test"):
         """
         Initialize the comparison module.
         
         Args:
             experiments_root_path: Path to the directory containing experiment folders.
+            split: Which data split to use for metrics. Either "test" or "val".
         """
+        if split not in ("test", "val"):
+            raise ValueError(f"split must be 'test' or 'val', got '{split}'")
         self.root_path = experiments_root_path
+        self.split = split
         self.data: List[Dict[str, Any]] = []
 
     def _parse_folder_name(self, folder_name: str) -> str:
@@ -31,8 +35,8 @@ class ExperimentComparison:
         n = len(targets)
         if n == 1:
             return "Single Target"
-        elif n == 4:
-            return "Reduced (4 Targets)"
+        elif n == 8:
+            return "Reduced (8 Targets)"
         elif n > 10:
             return "All Targets"
         else:
@@ -81,9 +85,10 @@ class ExperimentComparison:
                 # Loop through targets using the definition from THIS specific run
                 for local_index, target_name in enumerate(target_names):
                     # Map local index to metric key
-                    rmse_key = f"test_rmse_target_{local_index}"
-                    r2_key = f"test_r2_target_{local_index}"
-                    baseline_key = f"baseline_rmse_target_{local_index}"
+                    prefix = self.split
+                    rmse_key = f"{prefix}_rmse_target_{local_index}"
+                    r2_key = f"{prefix}_r2_target_{local_index}"
+                    baseline_key = f"{prefix}_baseline_rmse_target_{local_index}"
                     
                     if rmse_key in metrics:
                         rmse_val = float(metrics[rmse_key])
@@ -126,7 +131,7 @@ class ExperimentComparison:
         os.makedirs(output_dir, exist_ok=True)
         
         # Determine order for plotting consistency
-        config_order = ["Single Target", "Reduced (4 Targets)", "All Targets"]
+        config_order = ["Single Target", "Reduced (8 Targets)", "All Targets"]
         # Define specific colors for each config type so they remain consistent across plots
         palette_colors = sns.color_palette("viridis", n_colors=len(config_order))
         palette_dict = dict(zip(config_order, palette_colors))
@@ -197,10 +202,11 @@ class ExperimentComparison:
             for j in range(i + 1, len(axes)):
                 axes[j].axis('off')
                 
-            plt.suptitle(f"RMSE Comparison per Target - {model_class}", fontsize=16)
+            split_label = "Validation" if self.split == "val" else "Test"
+            plt.suptitle(f"RMSE Comparison per Target ({split_label}) - {model_class}", fontsize=16)
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
             
-            save_path = os.path.join(output_dir, f"multitarget_comparison_{model_class}.png")
+            save_path = os.path.join(output_dir, f"multitarget_comparison_{model_class}_{self.split}.png")
             plt.savefig(save_path)
             plt.close()
             print(f"Saved multitarget comparison plot to {save_path}")
@@ -323,10 +329,11 @@ class ExperimentComparison:
             for j in range(i + 1, len(axes)):
                 axes[j].axis('off')
                 
-            plt.suptitle(f"RMSE vs Augmentation Ratio per Target - {model_class}", fontsize=16)
+            split_label = "Validation" if self.split == "val" else "Test"
+            plt.suptitle(f"RMSE vs Augmentation Ratio per Target ({split_label}) - {model_class}", fontsize=16)
             plt.tight_layout(rect=[0, 0.03, 1, 0.95])
             
-            save_path = os.path.join(output_dir, f"augmentation_ratio_comparison_{model_class}.png")
+            save_path = os.path.join(output_dir, f"augmentation_ratio_comparison_{model_class}_{self.split}.png")
             plt.savefig(save_path)
             plt.close()
             print(f"Saved augmentation ratio comparison plot to {save_path}")
@@ -356,13 +363,14 @@ class ExperimentComparison:
         sns.stripplot(data=df, x="Model Class", y="RMSE", color='black', alpha=0.3, jitter=0.2)
         plt.axhline(y=1.0, color='black', linestyle='--', linewidth=2, label="Ref 1.0")
         
-        plt.title("Model Performance Distribution across All Targets")
+        split_label = "Validation" if self.split == "val" else "Test"
+        plt.title(f"Model Performance Distribution across All Targets ({split_label})")
         plt.ylabel("RMSE")
         plt.xlabel("Model Class")
         plt.xticks(rotation=45, ha='right')
         plt.legend()
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, "aggregated_model_comparison.png"))
+        plt.savefig(os.path.join(output_dir, f"aggregated_model_comparison_{self.split}.png"))
         plt.close()
         
         # 2. Per-target Subplots
@@ -426,9 +434,9 @@ class ExperimentComparison:
         for j in range(i + 1, len(axes)):
             axes[j].axis('off')
 
-        plt.suptitle("Model Comparison per Target", fontsize=16)
+        plt.suptitle(f"Model Comparison per Target ({split_label})", fontsize=16)
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-        plt.savefig(os.path.join(output_dir, "detailed_model_comparison.png"))
+        plt.savefig(os.path.join(output_dir, f"detailed_model_comparison_{self.split}.png"))
         plt.close()
         print("Saved detailed model comparison plots.")
 
@@ -442,16 +450,17 @@ class ExperimentComparison:
         os.makedirs(output_dir, exist_ok=True)
         
         df = pd.DataFrame(self.data)
-        csv_path = os.path.join(output_dir, "aggregated_metrics.csv")
+        csv_path = os.path.join(output_dir, f"{self.split}_aggregated_metrics.csv")
         df.to_csv(csv_path, index=False)
         print(f"Saved aggregated metrics to {csv_path}")
 
 if __name__ == "__main__":
     # Example usage assume running from src root or similar
     # Adjust path as needed during execution
-    results_path = "/workspace/automatic_assessment/experiment_results/first_model_comparison"
+    results_path = "/workspace/automatic_assessment/experiment_results/best_8target_models"
     if os.path.exists(results_path):
-        comp = ExperimentComparison(results_path)
+        # Change split to "val" to use validation metrics instead of test metrics
+        comp = ExperimentComparison(results_path, split="val") # "test" or "val"
         comp.plot_multitarget_comparison()
         comp.plot_model_comparison()
         comp.plot_augmentation_ratio_comparison()

@@ -24,6 +24,7 @@ from automatic_assessment.framework.models.mlp_path_shared_flat import MLPShared
 from automatic_assessment.framework.models.timeseries.BASE_baseline_flat import BASEBaselineFLAT
 from automatic_assessment.framework.models.timeseries.CNN_baseline_no_embedding import CNNBaselineNOEMBED
 from automatic_assessment.framework.models.timeseries.CNN_baseline_no_embedding_flat import CNNBaselineNOEMBEDFLAT
+from automatic_assessment.framework.models.timeseries.BASE_baseline_norm import BASEBaselineNORM
 
 
 def main():
@@ -89,10 +90,11 @@ def main():
             config = {
                 "epochs": 30,
                 "hyperparameter_mode": 'optimize', # 'default', 'optimize'
-                "n_trials": 50,  # Number of Optuna trials
+                "n_trials": 30,  # Number of Optuna trials
+                "early_stopping_patience": 2,  # Stop training if val loss doesn't improve for N epochs (None to disable)
                 "targets": target_set,
                 "augmentation_ratio": ratio,
-                "note": "Single targets comparison",
+                "note": "First with early stopping",
             }
             
             # List of models to test
@@ -103,7 +105,7 @@ def main():
             # models_to_test = [CNNBaseline, LSTMBaseline]
             # models_to_test = [LSTMBaseline]
             # models_to_test = [CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline, LinearReg, ElasticNetReg, SVRReg, RandomForestReg]
-            models_to_test = [BASEBaseline, MLPSharedEncoderFLAT, BASEBaselineFLAT, CNNBaselineNOEMBED, CNNBaselineNOEMBEDFLAT]
+            models_to_test = [BASEBaselineNORM, BASEBaseline, MLPSharedEncoderFLAT, BASEBaselineFLAT, CNNBaselineNOEMBED, CNNBaselineNOEMBEDFLAT]
 
             
             for model_class in models_to_test:

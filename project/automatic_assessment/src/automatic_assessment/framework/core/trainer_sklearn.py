@@ -50,7 +50,7 @@ class SklearnTrainer:
 
         return val_loss, preds, y_val_np
 
-    def train_model_and_evaluate_every_epoch(self, X_train, y_train, epochs, X_val, y_val):
+    def train_model_and_evaluate_every_epoch(self, X_train, y_train, epochs, X_val, y_val, early_stopping_patience=None):
         """
         Mimics the epoch-by-epoch training and evaluation.
         For Sklearn, we just fit once and evaluate once, but return a history 

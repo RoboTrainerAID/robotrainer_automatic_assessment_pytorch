@@ -96,7 +96,8 @@ class SimplePipeline:
                 Xt_s, yt_s, 
                 epochs=self.config.get('epochs', 50), 
                 X_val=Xv_s, 
-                y_val=yv_s
+                y_val=yv_s,
+                early_stopping_patience=self.config.get('early_stopping_patience')
             )
             trainer.cleanup()
 
@@ -177,6 +178,10 @@ class SimplePipeline:
         tqdm.write("Training final model on full training set...")
         trainer.train_model(Xt_s, yt_s, epochs=self.config.get('epochs', 50))
         
+        # Capture parameter count from the first trained model
+        model_total_params = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+        tqdm.write(f"Total trainable parameters: {model_total_params}")
+        
         # Evaluate on X_test
         tqdm.write("Evaluating on test set...")
         test_loss, test_preds, test_actuals = trainer.evaluate_model(Xtest_s, ytest_s)
@@ -219,6 +224,7 @@ class SimplePipeline:
         
         # Update Experiment Info
         final_results['experiment_info']['duration_final_test'] = duration_str
+        final_results['experiment_info']['total_model_parameters'] = model_total_params
         
         # Update Fold Data for Visualization
         # We replace the CV predictions with the Final Test predictions
@@ -291,7 +297,12 @@ class SimplePipeline:
             input_dims = self.model_class.get_input_dims(Xt_scaled)
 
             trainer = self._get_trainer(self.model_class, input_dims, yt_scaled.shape[1], params)
-            trainer.train_model(Xt_scaled, yt_scaled, epochs=self.config.get('epochs', 50))
+            trainer.train_model_and_evaluate_every_epoch(
+                Xt_scaled, yt_scaled, 
+                epochs=self.config.get('epochs', 50),
+                X_val=Xv_scaled, y_val=yv_scaled,
+                early_stopping_patience=self.config.get('early_stopping_patience')
+            )
 
             
             val_loss, val_preds, val_actuals = trainer.evaluate_model(Xv_scaled, yv_scaled)

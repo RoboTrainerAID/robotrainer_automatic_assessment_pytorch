@@ -26,7 +26,7 @@ class Trainer:
         
         # Improvement 2: Scheduler
         self.scheduler_class = torch.optim.lr_scheduler.CosineAnnealingLR
-        self.eta_min = params.get('eta_min', 1e-7)
+        self.eta_min = params.get('eta_min', 1e-6)
 
     def _to_device(self, data):
         if isinstance(data, (list, tuple)):
@@ -77,12 +77,14 @@ class Trainer:
                 self.train_epoch(train_loader)
                 scheduler.step()
 
-    def train_model_and_evaluate_every_epoch(self, X_train: tuple, y_train: torch.Tensor, epochs: int, X_val: tuple, y_val: torch.Tensor) -> dict:
+    def train_model_and_evaluate_every_epoch(self, X_train: tuple, y_train: torch.Tensor, epochs: int, X_val: tuple, y_val: torch.Tensor, early_stopping_patience: int = None) -> dict:
         train_loader = get_dataloader(*X_train, y_train, batch_size=self.params.get('batch_size', 16))
         val_loader = get_dataloader(*X_val, y_val, batch_size=len(y_val), shuffle=False)
         scheduler = self.scheduler_class(self.optimizer, T_max=epochs, eta_min=self.eta_min)
 
         history = {'train_loss': [], 'val_loss': []}
+        best_val_loss = float('inf')
+        patience_counter = 0
 
         for _ in range(epochs):
             train_loss = self.train_epoch(train_loader)
@@ -92,6 +94,16 @@ class Trainer:
             history['val_loss'].append(val_loss)
             
             scheduler.step()
+            
+            # Early stopping check
+            if early_stopping_patience is not None:
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    patience_counter = 0
+                else:
+                    patience_counter += 1
+                    if patience_counter >= early_stopping_patience:
+                        break
         
         return history
 

@@ -624,7 +624,7 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
                 # MIRROR X AXIS (Transform data to positive coordinates)
                 plot_df["robot_pos_x"] *= -1
 
-        plt.figure(figsize=(8, 4))
+        plt.figure(figsize=(7, 3.5))
         ax = plt.gca()
 
         # Plot Scenario Path (Shifted & Mirrored)
@@ -633,7 +633,7 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
             xs, ys = zip(*path_points)
             xs = (np.array(xs) - offset_x) * -1 # Mirror
             ys = np.array(ys) - offset_y
-            plt.plot(xs, ys, color='black', linewidth=2, label='Scenario Path') #alpha=0.5)
+            plt.plot(xs, ys, color='black', linewidth=3, label='Scenario Path') #alpha=0.5)
 
         # Plot Forces (Shifted & Mirrored)
         has_forces = False
@@ -647,7 +647,7 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
             strength = force['strength']
 
             # Force Area (Circle)
-            circle = plt.Circle((cx, cy), radius, color='red', fill=False, linestyle='--', linewidth=1.5)
+            circle = plt.Circle((cx, cy), radius, color='red', fill=False, linestyle='--', linewidth=2)
             ax.add_patch(circle)
 
             # Force Vector (Arrow)
@@ -656,7 +656,7 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
             # Label
             label_x = cx + vx
             label_y = cy + vy
-            plt.text(label_x - 0.7, label_y, f"{strength:.0f} N", color='red', fontsize=10, fontweight='bold')
+            plt.text(label_x + 0.2, label_y, f"{strength:.0f} N", color='red', fontsize=10, fontweight='bold')
 
         # Plot Areas (Shifted & Mirrored)
         has_areas = False
@@ -665,14 +665,15 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
             cx = (area['center'][0] - offset_x) * -1 # Mirror center
             cy = area['center'][1] - offset_y
             radius = area['radius']
-            label = area['label']
+            # label = area['label']
+            label = "Inverted\nSteering"
             
             # Area Circle (Orange dashed/dot)
-            circle = plt.Circle((cx, cy), radius, color='orange', fill=False, linestyle='-.', linewidth=1.5)
+            circle = plt.Circle((cx, cy), radius, color='orange', fill=False, linestyle='-.', linewidth=2)
             ax.add_patch(circle)
             
             # Label (Function name)
-            plt.text(cx, cy + radius -0.4, label, color='orange', fontsize=9, fontweight='bold', ha='center')
+            plt.text(cx, cy + radius -0.5, label, color='orange', fontsize=9, fontweight='bold', ha='center')
 
         # Overlay Robot Path
         if not plot_df.empty:
@@ -680,10 +681,10 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
             y_vals = plot_df["robot_pos_y"].values
             
             # Mark Start (0,0) and End points
-            plt.scatter(0, 0, c='black', marker='o', s=60, zorder=5)
+            plt.scatter(0, 0, c='black', marker='o', s=150, zorder=5)
             plt.text(0, -0.2, "Start", fontsize=10, color='black', fontweight='bold', zorder=5, ha='center', va='top')
             
-            plt.scatter(x_vals[-1], y_vals[-1], c='black', marker='o', s=60, zorder=5)
+            plt.scatter(x_vals[-1], y_vals[-1], c='black', marker='o', s=150, zorder=5)
             plt.text(x_vals[-1], y_vals[-1] - 0.2, "End", fontsize=10, color='black', fontweight='bold', zorder=5, ha='center', va='top')
 
             if sensor_col and sensor_col in plot_df.columns:
@@ -699,13 +700,16 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
                 
                 # Use value at start of segment for color
                 lc.set_array(sensor_vals[:-1])
-                lc.set_linewidth(10) 
+                lc.set_linewidth(15) 
                 
                 # 'round' capstyle smooths joints visually
                 # lc.set_capstyle('round') 
                 
+                label = sensor_col
+                # label = "Heart rate variability [ms]"
+                # label = "Magnitude of total user force [N]"
                 line = ax.add_collection(lc)
-                cbar = plt.colorbar(line, ax=ax, label=sensor_col)
+                cbar = plt.colorbar(line, ax=ax, label=label, location='right', pad=0.02)
             else:
                 plt.plot(x_vals, y_vals, color='blue', linestyle='-', alpha=0.6, linewidth=5)
         else:
@@ -733,14 +737,64 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
             plt.scatter(sens_x, sens_y, facecolors='none', edgecolors='magenta', s=300, linewidths=2.5, zorder=10, label='Sensor Event')
                 
         # Construct Custom Legend
-        legend_elements = [Line2D([0], [0], color='black', lw=2, label='Scenario Path')] #alpha=0.5
-        if has_forces: legend_elements.append(Line2D([0], [0], color='red', linestyle='--', lw=1.5, label='Force Area'))
-        if has_areas: legend_elements.append(Line2D([0], [0], color='orange', linestyle='-.', lw=1.5, label='Effect Area'))
-        legend_elements.extend([
-            Line2D([0], [0], color='teal' if sensor_col else 'blue', lw=3, label='Robot Path'),
-            Line2D([0], [0], marker='o', color='w', markerfacecolor='black', markersize=8, label='Start, End')
-        ])
-        
+        legend_elements = [Line2D([0], [0], color='black', lw=3, label='Scenario Path')] #alpha=0.5
+        if has_forces: legend_elements.append(Line2D([0], [0], color='red', linestyle='--', lw=2, label='Force Area'))
+        if has_areas: legend_elements.append(Line2D([0], [0], color='orange', linestyle='-.', lw=2, label='Effect Area'))
+
+        if sensor_col and sensor_col in plot_df.columns:
+            # Build a gradient legend handle using a small LineCollection that transitions
+            # from the colormap min to max color over the short legend line length.
+            # We use a HandlerLineCollection so matplotlib renders it as a LineCollection.
+            from matplotlib.legend_handler import HandlerBase
+            from matplotlib.collections import LineCollection as LC
+
+            class HandlerGradientLine(HandlerBase):
+                """Custom legend handler that renders a gradient line using the viridis colormap."""
+                def __init__(self, cmap_name: str = 'viridis', n_segments: int = 64, lw: float = 3.0) -> None:
+                    super().__init__()
+                    self.cmap_name = cmap_name
+                    self.n_segments = n_segments
+                    self.lw = lw
+
+                def create_artists(self, legend, orig_handle,
+                                   xdescent, ydescent, width, height,
+                                   fontsize, trans):
+                    import matplotlib.cm as cm
+                    import matplotlib.colors as mcolors
+
+                    cmap = cm.get_cmap(self.cmap_name)
+                    n = self.n_segments
+
+                    # Build small horizontal line from x0 to x1 at mid height
+                    x0, x1 = xdescent, xdescent + width
+                    y_mid = ydescent + height / 2.0
+
+                    # Evenly spaced x positions
+                    xs = np.linspace(x0, x1, n + 1)
+                    ys = np.full(n + 1, y_mid)
+
+                    # Build segments: each segment is a pair of consecutive points
+                    points = np.array([xs, ys]).T.reshape(-1, 1, 2)
+                    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+                    # Color values go from max (1.0) to min (0.0) → same as viridis colorbar max→min
+                    vals = np.linspace(1.0, 0.0, n)
+                    colors = cmap(vals)
+
+                    lc = LC(segments, colors=colors, linewidth=self.lw, transform=trans)
+                    return [lc]
+
+            # Dummy Line2D as placeholder — the handler replaces the visual entirely
+            gradient_handle = Line2D([0], [0], label='Robot Path')
+            legend_elements.extend([gradient_handle])
+            handler_map = {gradient_handle: HandlerGradientLine(cmap_name='viridis', n_segments=64, lw=3.0)}
+        else:
+            # Solid blue line when no sensor column is provided
+            legend_elements.extend([
+                Line2D([0], [0], color='blue', lw=3, label='Robot Path'),
+            ])
+            handler_map = {}
+
         if scenario_pois:
              if isinstance(scenario_pois, dict):
                  if scenario_pois.get('forces'):
@@ -753,14 +807,14 @@ def plot_scenario_with_robot(parsed_scenario: dict, path_data: PathData = None,
         if sensor_pois:
             legend_elements.append(Line2D([0], [0], marker='o', color='w', markeredgecolor='magenta', markerfacecolor='none', markersize=10, markeredgewidth=2, label='Sensor Event'))
 
-
-        plt.legend(handles=legend_elements, loc='upper left')
+        # Pass handler_map to legend so the gradient handle is rendered correctly
+        plt.legend(handles=legend_elements, handler_map=handler_map, loc='upper right')
 
         title_str = "Scenario Visualization"
         if path_data: title_str += f" ({path_data.path_id})"
         plt.title(title_str)
-        plt.xlabel("X [m]")
-        plt.ylabel("Y [m]")
+        plt.xlabel("x [m]")
+        plt.ylabel("y [m]")
         
         # Grid settings
         plt.axis('equal')
@@ -797,7 +851,7 @@ if __name__ == "__main__":
     
     # 2. Select User and Path for Analysis using IDs (Integers)
     target_user_id = 12 # 18, 12
-    target_path_id = 14   
+    target_path_id = 14 # 10, 14   
     
     path_data = dataset[target_user_id][target_path_id]
 
@@ -821,10 +875,12 @@ if __name__ == "__main__":
     parsed_data = parse_scenario(raw_scenario)
     
     # Calculate POIs
+    # sensor_column = "user_force_total_mag"
     sensor_column = "hrv"
-    scen_pois = find_scenario_pois(parsed_data, path_data)
+    # scen_pois = find_scenario_pois(parsed_data, path_data)
     # sens_pois = find_sensor_pois(path_data, sensor_column)
     sens_pois = [] 
+    scen_pois = []
     
     plot_scenario_with_robot(parsed_data, path_data, sensor_col=sensor_column, 
                                 scenario_pois=scen_pois, sensor_pois=sens_pois)

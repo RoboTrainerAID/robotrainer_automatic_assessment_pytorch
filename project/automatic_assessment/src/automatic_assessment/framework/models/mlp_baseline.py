@@ -87,11 +87,14 @@ class MLPBaseline(BaseModel):
     def get_hyperparameter_space(trial):
 
         return {
+            "lr": trial.suggest_float("lr", 1e-4, 1e-2, log=True),
+            "weight_decay": trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True),
+            "batch_size": trial.suggest_categorical("batch_size", [6]),
             "n_layers": trial.suggest_int("n_layers", 1, 4),
 
             "hidden_dim": trial.suggest_categorical(
                 "hidden_dim",
-                [32, 64, 128, 256]
+                [128, 256, 384, 512, 768, 1024]
             ),
 
             "shrink_factor": trial.suggest_categorical(
@@ -99,7 +102,7 @@ class MLPBaseline(BaseModel):
                 [1.0, 0.75, 0.5]
             ),
 
-            "dropout": trial.suggest_float("dropout", 0.0, 0.4),
+            "dropout": trial.suggest_float("dropout", 0.1, 0.7),
             "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
             # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.4, 0.8, step=0.01)
         }

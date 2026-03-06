@@ -156,12 +156,12 @@ class CNNBaselineNOEMBEDFLAT(BaseModel):
     @staticmethod
     def get_hyperparameter_space(trial: Any) -> Dict[str, Any]:
         return {
-            "cnn_channels": trial.suggest_categorical("cnn_channels", [4, 8, 12]),
-            "path_aggregation": trial.suggest_categorical("path_aggregation", ["mean", "flatten"]),
-            "regressor_dim": trial.suggest_categorical("regressor_dim", [32, 64, 128, 256]),
-            "dropout_reg": trial.suggest_float("dropout_reg", 0.0, 0.4),
-            "lr": trial.suggest_float("lr", 1e-4, 5e-3, log=True),
-            "weight_decay": trial.suggest_float("weight_decay", 5e-4, 1e-2, log=True),
+            "cnn_channels": trial.suggest_categorical("cnn_channels", [8, 12, 16]),
+            "path_aggregation": trial.suggest_categorical("path_aggregation", ["flatten"]),
+            "regressor_dim": trial.suggest_categorical("regressor_dim", [256, 384, 512, 768]),
+            "dropout_reg": trial.suggest_float("dropout_reg", 0.2, 0.6),
+            "lr": trial.suggest_float("lr", 5e-4, 1e-2, log=True),
+            "weight_decay": trial.suggest_float("weight_decay", 1e-4, 1e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
             # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.1, 0.4, step=0.01),
             "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),

@@ -134,3 +134,8 @@ class SklearnBaseModel(BaseEstimator):
 
     def update_running_mean(self, y):
         pass
+
+    def parameters(self):
+        """Returns an empty iterator to stay compatible with the pipeline's
+        parameter counting logic (which calls model.parameters())."""
+        return iter([])

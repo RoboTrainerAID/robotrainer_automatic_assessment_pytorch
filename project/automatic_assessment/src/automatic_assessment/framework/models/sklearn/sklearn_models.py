@@ -1,3 +1,5 @@
+import warnings
+
 from sklearn.linear_model import LinearRegression, ElasticNet, SGDRegressor
 from sklearn.svm import SVR
 from sklearn.ensemble import RandomForestRegressor
@@ -157,6 +159,155 @@ class RandomForestReg(SklearnBaseModel):
             "min_samples_leaf": 1, "max_features": 1.0, "bootstrap": True, 
             "n_path_features": 50
         }
+
+
+class AutoSklearnReg(SklearnBaseModel):
+    """AutoML baseline using auto-sklearn's AutoSklearnRegressor.
+    
+    Auto-sklearn performs its own internal model selection and hyperparameter
+    optimization. The Optuna layer in the pipeline therefore exposes only
+    high-level resource-budget parameters.
+    
+    Install:  pip install auto-sklearn
+    Note: auto-sklearn requires Linux and Python <=3.10.
+    """
+    model_name = "AutoSklearn"
+
+    def __init__(self, input_dims, output_dim, hyperparams):
+        super().__init__(input_dims, output_dim, hyperparams)
+        try:
+            from autosklearn.regression import AutoSklearnRegressor
+        except ImportError:
+            raise ImportError(
+                "auto-sklearn is not installed. "
+                "Install it with: pip install auto-sklearn\n"
+                "Note: auto-sklearn requires Linux and Python <=3.10."
+            )
+
+        time_left = hyperparams.get("time_left_for_this_task", 120)
+        per_run_time = hyperparams.get("per_run_time_limit", 30)
+        ensemble_size = hyperparams.get("ensemble_size", 1)
+        initial_configs = hyperparams.get("initial_configurations_via_metalearning", 25)
+        memory_limit = hyperparams.get("memory_limit", 4096)  # MB
+
+        self.model = AutoSklearnRegressor(
+            time_left_for_this_task=int(time_left),
+            per_run_time_limit=int(per_run_time),
+            ensemble_class="default" if ensemble_size > 0 else None,
+            initial_configurations_via_metalearning=int(initial_configs),
+            memory_limit=int(memory_limit),
+            n_jobs=-1,
+            seed=42,
+        )
+
+    @staticmethod
+    def get_hyperparameter_space(trial):
+        return {
+            "time_left_for_this_task": trial.suggest_categorical(
+                "time_left_for_this_task", [60, 120, 300, 600]
+            ),
+            "per_run_time_limit": trial.suggest_categorical(
+                "per_run_time_limit", [10, 30, 60]
+            ),
+            "ensemble_size": trial.suggest_int("ensemble_size", 0, 50, step=5),
+            "initial_configurations_via_metalearning": trial.suggest_int(
+                "initial_configurations_via_metalearning", 0, 25, step=5
+            ),
+            "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
+        }
+
+    @staticmethod
+    def get_default_parameters():
+        return {
+            "time_left_for_this_task": 120,
+            "per_run_time_limit": 30,
+            "ensemble_size": 1,
+            "initial_configurations_via_metalearning": 25,
+            "memory_limit": 4096,
+            "n_path_features": 50,
+        }
+
+    @classmethod
+    def print_summary(cls, X, y):
+        print(f"\n--- AutoML Model Summary: {cls.__name__} ---")
+        print("auto-sklearn AutoML regressor (internal model selection + HPO).")
+        print("Input: Flattened (Path Features + User Features)")
+        print(f"Output Targets: {y.shape[1]}")
+        print("---------------------------------------")
+
+
+class TabPFNReg(SklearnBaseModel):
+    """Tabular foundation model baseline using TabPFN.
+    
+    TabPFN is a pre-trained transformer that performs well on small-to-medium
+    tabular datasets (up to ~10k rows).  It follows the sklearn estimator API.
+    
+    Since TabPFN is a pre-trained foundation model, it has very few tunable
+    parameters (only n_estimators and feature selection).  Hyperparameter
+    tuning is lightweight — consider using 'default' mode or very few trials.
+    
+    Install:  pip install tabpfn
+    Requires: Python >=3.9, GPU strongly recommended.
+    """
+    model_name = "TabPFN"
+
+    @staticmethod
+    def _resolve_device(requested: str = "auto") -> str:
+        """Pick the best available device. 'auto' -> cuda if available."""
+        import torch
+        if requested == "auto":
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        return requested
+
+    def __init__(self, input_dims, output_dim, hyperparams):
+        super().__init__(input_dims, output_dim, hyperparams)
+        try:
+            from tabpfn import TabPFNRegressor
+        except ImportError:
+            raise ImportError(
+                "TabPFN is not installed.\n"
+                "Requires Python >=3.9. GPU strongly recommended.\n"
+                "Here are the steps to set up TabPFN:\n"
+                "pip install tabpfn --no-deps && pip install tabpfn-common-utils einops eval-type-backport huggingface-hub pydantic pydantic-settings\n"
+                "export <hugging_face_token.txt>\n"
+            )
+
+        device = self._resolve_device(hyperparams.get("device", "auto"))
+        n_estimators = hyperparams.get("n_estimators", 4)
+
+        # Build a single-output TabPFN regressor, then wrap for multi-output
+        base_regressor = TabPFNRegressor(
+            device=device,
+            n_estimators=n_estimators,
+            random_state=42,
+        )
+        self.model = MultiOutputRegressor(base_regressor)
+
+    @staticmethod
+    def get_hyperparameter_space(trial):
+        # TabPFN is a pre-trained foundation model — very few knobs to turn.
+        # n_estimators: ensemble size (higher = better accuracy, slower inference)
+        # n_path_features: pipeline-level feature selection (shared across all sklearn models)
+        return {
+            "n_estimators": trial.suggest_int("n_estimators", 4, 16),
+            "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
+        }
+
+    @staticmethod
+    def get_default_parameters():
+        return {
+            "n_estimators": 4,
+            "device": "auto",  # auto-detects GPU; set "cpu" to force CPU
+            "n_path_features": 50,
+        }
+
+    @classmethod
+    def print_summary(cls, X, y):
+        print(f"\n--- Foundation Model Summary: {cls.__name__} ---")
+        print("TabPFN pre-trained tabular transformer (regressor).")
+        print("Input: Flattened (Path Features + User Features)")
+        print(f"Output Targets: {y.shape[1]}")
+        print("---------------------------------------")
 
 
 class SGDReg(SklearnBaseModel):

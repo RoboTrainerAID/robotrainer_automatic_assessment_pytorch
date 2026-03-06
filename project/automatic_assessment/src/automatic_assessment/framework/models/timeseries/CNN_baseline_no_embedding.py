@@ -156,11 +156,11 @@ class CNNBaselineNOEMBED(BaseModel):
     @staticmethod
     def get_hyperparameter_space(trial: Any) -> Dict[str, Any]:
         return {
-            "cnn_channels": trial.suggest_categorical("cnn_channels", [4, 8, 12]),
-            "path_aggregation": trial.suggest_categorical("path_aggregation", ["mean", "flatten"]),
-            "regressor_dim": trial.suggest_categorical("regressor_dim", [32, 64, 128, 256]),
-            "dropout_reg": trial.suggest_float("dropout_reg", 0.0, 0.4),
-            "lr": trial.suggest_float("lr", 1e-4, 5e-3, log=True),
+            "cnn_channels": trial.suggest_categorical("cnn_channels", [6, 8, 10, 12]),
+            "path_aggregation": trial.suggest_categorical("path_aggregation", ["mean"]),
+            "regressor_dim": trial.suggest_categorical("regressor_dim", [384, 512, 640, 768]),
+            "dropout_reg": trial.suggest_float("dropout_reg", 0.2, 0.6),
+            "lr": trial.suggest_float("lr", 5e-4, 1e-2, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 5e-4, 1e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
             # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.1, 0.4, step=0.01),
@@ -170,13 +170,13 @@ class CNNBaselineNOEMBED(BaseModel):
     @staticmethod
     def get_default_parameters() -> Dict[str, Any]:
         return {
-            "cnn_channels": 8,
+            "cnn_channels": 12,
             "path_aggregation": "mean",
-            "regressor_dim": 48,
-            "dropout_reg": 0.2,
-            "lr": 0.0008957476788727834,
-            "weight_decay": 0.00954951015873937,
+            "regressor_dim": 512,
+            "dropout_reg": 0.5519260191275582,
+            "lr": 0.0009628661507521789,
+            "weight_decay": 0.0033954306517177935,
             "batch_size": 6,
             # "correlation_threshold": 0.1
-            "n_path_features": 50,
+            "n_path_features": 35,
         }

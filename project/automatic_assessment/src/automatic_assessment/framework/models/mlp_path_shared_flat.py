@@ -149,13 +149,13 @@ class MLPSharedEncoderFLAT(BaseModel):
     def get_hyperparameter_space(trial: Any) -> Dict[str, Any]:
 
         return {
-            "lr": trial.suggest_float("lr", 1e-4, 1e-2, log=True),
+            "lr": trial.suggest_float("lr", 1e-4, 5e-2, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
-            "embed_dim": trial.suggest_categorical("embed_dim", [8, 16, 24, 32]),
-            "hidden_dim": trial.suggest_categorical("hidden_dim", [4, 8, 16]),
-            "reg_hidden_dim": trial.suggest_categorical("reg_hidden_dim", [32, 64, 128]),
-            "dropout": trial.suggest_float("dropout", 0.0, 0.3),
+            "embed_dim": trial.suggest_categorical("embed_dim", [2, 4, 6, 8]),
+            "hidden_dim": trial.suggest_categorical("hidden_dim", [18, 24, 32]),
+            "reg_hidden_dim": trial.suggest_categorical("reg_hidden_dim", [256, 384, 448, 512]),
+            "dropout": trial.suggest_float("dropout", 0.2, 0.6),
             "pooling": trial.suggest_categorical("pooling", ["flatten"]),# "mean", "attention", 
             "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
             # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.4, 0.8, step=0.01)

@@ -117,12 +117,12 @@ class BASEBaselineFLAT(BaseModel):
     @staticmethod
     def get_hyperparameter_space(trial: Any) -> Dict[str, Any]:
         return {
-            "path_dim": trial.suggest_categorical("path_dim", [6, 8, 12, 16]),
-            "dropout_path": trial.suggest_float("dropout_path", 0.1, 0.4),
+            "path_dim": trial.suggest_categorical("path_dim", [2, 4, 6, 8]),
+            "dropout_path": trial.suggest_float("dropout_path", 0.1, 0.5),
             "path_aggregation": trial.suggest_categorical("path_aggregation", ["flatten"]), #"attention", "mean", 
-            "regressor_dim": trial.suggest_categorical("regressor_dim", [32, 48, 64, 128, 256]),
-            "dropout_reg": trial.suggest_float("dropout_reg", 0.0, 0.4),
-            "lr": trial.suggest_float("lr", 1e-4, 5e-3, log=True),
+            "regressor_dim": trial.suggest_categorical("regressor_dim", [384, 512, 640, 768]),
+            "dropout_reg": trial.suggest_float("dropout_reg", 0.2, 0.6),
+            "lr": trial.suggest_float("lr", 1e-4, 1e-2, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 5e-4, 1e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
             # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.1, 0.4, step=0.01),

@@ -152,15 +152,15 @@ class LSTMBaseline(BaseModel):
     @staticmethod
     def get_hyperparameter_space(trial) -> Dict[str, Any]:
         return {
-            "lstm_hidden": trial.suggest_categorical("lstm_hidden", [12, 18, 24]),
+            "lstm_hidden": trial.suggest_categorical("lstm_hidden", [6, 8, 12, 18]),
             "lstm_layers": trial.suggest_int("lstm_layers", 1, 1),
-            "dropout_lstm": trial.suggest_float("dropout_lstm", 0.0, 0.3),
+            "dropout_lstm": trial.suggest_float("dropout_lstm", 0.1, 0.4),
             "path_dim": trial.suggest_categorical("path_dim", [8, 12, 16]),
-            "dropout_path": trial.suggest_float("dropout_path", 0.1, 0.4),
-            "path_aggregation": trial.suggest_categorical("path_aggregation", ["attention", "mean"]),
+            "dropout_path": trial.suggest_float("dropout_path", 0.1, 0.6),
+            "path_aggregation": trial.suggest_categorical("path_aggregation", ["mean"]), #"attention", 
             "regressor_dim": trial.suggest_categorical("regressor_dim", [32, 48, 64]),
             "dropout_reg": trial.suggest_float("dropout_reg", 0.1, 0.4),
-            "lr": trial.suggest_float("lr", 1e-5, 1e-3, log=True),
+            "lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),
             "weight_decay": trial.suggest_float("weight_decay", 1e-4, 1e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
             # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.1, 0.4, step=0.01),
@@ -170,17 +170,17 @@ class LSTMBaseline(BaseModel):
     @staticmethod
     def get_default_parameters() -> Dict[str, Any]:
         return {
-            "lstm_hidden": 18,
+            "lstm_hidden": 8,
             "lstm_layers": 1,
-            "dropout_lstm": 0.1,
+            "dropout_lstm": 0.2596053561405025,
             "path_dim": 12,
-            "dropout_path": 0.2,
+            "dropout_path": 0.30807648872337967,
             "path_aggregation": "mean",
             "regressor_dim": 48,
-            "dropout_reg": 0.2,
-            "lr": 2e-4,
-            "weight_decay": 1e-3,
+            "dropout_reg": 0.1727335218342718,
+            "lr": 0.0009883405876509705,
+            "weight_decay": 0.0009484230000347363,
             "batch_size": 6,
             # "correlation_threshold": 0.3,
-            "n_path_features": 50,
+            "n_path_features": 70,
         }

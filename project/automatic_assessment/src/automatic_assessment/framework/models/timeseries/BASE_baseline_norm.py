@@ -4,6 +4,9 @@ from typing import Dict, Any, List
 
 from ..base import BaseModel
 
+# Das selbe wie die CNN oder LSTM architektur aber ohne CNN oder LSTM, also nur mit linearen Schichten. 
+# Damit können wir testen, ob die Komplexität der CNN/LSTM Architekturen überhaupt nötig ist oder ob ein simpler linearer Ansatz schon ausreicht.
+
 
 def masked_mean(x: torch.Tensor, lengths: torch.Tensor):
     device = x.device
@@ -20,8 +23,8 @@ def compute_lengths_flat(x_flat: torch.Tensor):
     return lengths.clamp(min=1)
 
 
-class CNNBaseline(BaseModel):
-    model_name = "CNN_Baseline"
+class BASEBaselineNORM(BaseModel):
+    model_name = "BASE_BaselineNORM"
 
     def __init__(self, input_dims, output_dim, hyperparams):
         super().__init__(input_dims, output_dim, hyperparams)
@@ -38,19 +41,12 @@ class CNNBaseline(BaseModel):
         self.f_user = user_shape[1]
 
         hp = hyperparams
-        channels = hp["cnn_channels"]
-
-        self.cnn = nn.Sequential(
-            nn.Conv1d(self.n_ts, channels, kernel_size=5, padding=2),
-            nn.ReLU(),
-            nn.Conv1d(channels, channels, kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
 
         self.path_dim = hp["path_dim"]
 
         self.path_bottleneck = nn.Sequential(
-            nn.Linear(channels + self.f_path, self.path_dim),
+            nn.Linear(self.f_path, self.path_dim),
+            nn.LayerNorm(self.path_dim),
             nn.ReLU(),
             nn.Dropout(hp["dropout_path"])
         )
@@ -74,34 +70,10 @@ class CNNBaseline(BaseModel):
 
     # -----------------------------------------------------
 
-    def encode_timeseries(self, x_ts):
-        B, P, TS, T = x_ts.shape
-
-        # compute path lengths
-        x_path = x_ts.abs().sum(dim=2)
-        x_path = x_path.view(B * P, T)
-        l = compute_lengths_flat(x_path)
-
-        # flatten → (B*P,TS,T)
-        x = x_ts.reshape(B * P, TS, T)
-
-        feat = self.cnn(x)
-        feat = feat.permute(0, 2, 1)
-
-        pooled = masked_mean(feat, l)
-
-        pooled = pooled.view(B, P, pooled.shape[-1])
-        return pooled
-
-    # -----------------------------------------------------
-
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
         x_ts, x_path, x_user = x
 
-        ts_paths = self.encode_timeseries(x_ts)        # (B,P,C)
-
-        path_combined = torch.cat([ts_paths, x_path], dim=-1)
-        path_feat = self.path_bottleneck(path_combined)
+        path_feat = self.path_bottleneck(x_path)
 
         if self.path_aggregation == "mean":
             path_global = path_feat.mean(dim=1)
@@ -122,14 +94,13 @@ class CNNBaseline(BaseModel):
     @staticmethod
     def get_hyperparameter_space(trial) -> Dict[str, Any]:
         return {
-            "cnn_channels": trial.suggest_categorical("cnn_channels", [2, 4, 8]),
-            "path_dim": trial.suggest_categorical("path_dim", [4, 6, 8, 12]),
-            "dropout_path": trial.suggest_float("dropout_path", 0.1, 0.6),
+            "path_dim": trial.suggest_categorical("path_dim", [6, 8, 12, 16, 24]),
+            "dropout_path": trial.suggest_float("dropout_path", 0.2, 0.5),
             "path_aggregation": trial.suggest_categorical("path_aggregation", ["mean"]), #"attention", 
-            "regressor_dim": trial.suggest_categorical("regressor_dim", [128, 192, 256, 384, 512]),
-            "dropout_reg": trial.suggest_float("dropout_reg", 0.1, 0.6),
-            "lr": trial.suggest_float("lr", 1e-5, 5e-2, log=True),
-            "weight_decay": trial.suggest_float("weight_decay", 5e-4, 5e-2, log=True),
+            "regressor_dim": trial.suggest_categorical("regressor_dim", [64, 96, 128, 192]),
+            "dropout_reg": trial.suggest_float("dropout_reg", 0.2, 0.6),
+            "lr": trial.suggest_float("lr", 5e-4, 5e-2, log=True),
+            "weight_decay": trial.suggest_float("weight_decay", 1e-3, 5e-2, log=True),
             "batch_size": trial.suggest_categorical("batch_size", [6]),
             # "correlation_threshold": trial.suggest_float("correlation_threshold", 0.1, 0.4, step=0.01),
             "n_path_features": trial.suggest_int("n_path_features", 20, 70, step=5),
@@ -138,8 +109,8 @@ class CNNBaseline(BaseModel):
     @staticmethod
     def get_default_parameters() -> Dict[str, Any]:
         return {
-            "cnn_channels": 8,
             "path_dim": 12,
+            "norm": "layer",
             "dropout_path": 0.2,
             "path_aggregation": "mean",
             "regressor_dim": 48,

@@ -167,6 +167,12 @@ class SavingModule:
         full_df.to_csv(preds_file, index=False)
 
         # ---------------------------------------------------------
+        # 3b. Save Unscaled Predictions & Metrics CSV
+        # ---------------------------------------------------------
+        target_names = config.get('targets', [])
+        self._save_unscaled_results(results, fold_data, target_names)
+
+        # ---------------------------------------------------------
         # 4. Save Summary Metrics (metrics.yaml)
         # ---------------------------------------------------------
         summary = test_metrics.copy()
@@ -251,3 +257,111 @@ class SavingModule:
             yaml.dump(summary, f)
             
         print(f"Results saved to {self.output_dir}")
+
+    def _save_unscaled_results(self, results: dict, fold_data: list, target_names: list):
+        """
+        Saves unscaled (inverse-transformed) predictions and per-target metrics
+        including mean, std, RMSE, MAE, and R2 to CSV files.
+        """
+        unscaled_test_metrics = results.get('unscaled_test_metrics', {})
+        unscaled_baseline_metrics = results.get('unscaled_baseline_metrics', {})
+        
+        if not fold_data:
+            return
+        
+        f0 = fold_data[0]
+        preds_unscaled = f0.get('test_preds_unscaled')
+        actuals_unscaled = f0.get('test_actuals_unscaled')
+        dummy_preds_unscaled = f0.get('dummy_preds_unscaled')
+        
+        if preds_unscaled is None or actuals_unscaled is None:
+            return
+        
+        # --- 1. Save predictions_unscaled.csv ---
+        user_ids = f0.get('user_id', [])
+        if np.isscalar(user_ids) or (isinstance(user_ids, np.ndarray) and user_ids.ndim == 0):
+            user_ids = [user_ids]
+        elif isinstance(user_ids, np.ndarray):
+            user_ids = user_ids.flatten().tolist()
+        
+        n_targets = preds_unscaled.shape[1] if preds_unscaled.ndim > 1 else 1
+        
+        # Build column names from target_names or fallback to indices
+        pred_cols = []
+        actual_cols = []
+        for i in range(n_targets):
+            tname = target_names[i] if i < len(target_names) else f"target_{i}"
+            pred_cols.append(f"pred_{tname}")
+            actual_cols.append(f"actual_{tname}")
+        
+        rows = []
+        count = min(len(user_ids), len(preds_unscaled))
+        for i in range(count):
+            row = {"user_id": int(user_ids[i])}
+            for t_idx in range(n_targets):
+                row[pred_cols[t_idx]] = float(preds_unscaled[i, t_idx]) if preds_unscaled.ndim > 1 else float(preds_unscaled[i])
+                row[actual_cols[t_idx]] = float(actuals_unscaled[i, t_idx]) if actuals_unscaled.ndim > 1 else float(actuals_unscaled[i])
+            rows.append(row)
+        
+        pred_df = pd.DataFrame(rows)
+        pred_df.to_csv(os.path.join(self.output_dir, "predictions_unscaled.csv"), index=False)
+        
+        # --- 2. Save metrics_unscaled.csv (per-target summary) ---
+        summary_rows = []
+        for i in range(n_targets):
+            tname = target_names[i] if i < len(target_names) else f"target_{i}"
+            col_preds = preds_unscaled[:, i] if preds_unscaled.ndim > 1 else preds_unscaled
+            col_actuals = actuals_unscaled[:, i] if actuals_unscaled.ndim > 1 else actuals_unscaled
+            
+            rmse = float(np.sqrt(np.mean((col_actuals - col_preds) ** 2)))
+            mae = float(np.mean(np.abs(col_actuals - col_preds)))
+            
+            # R2
+            ss_res = np.sum((col_actuals - col_preds) ** 2)
+            ss_tot = np.sum((col_actuals - np.mean(col_actuals)) ** 2)
+            r2 = float(1 - ss_res / ss_tot) if ss_tot > 0 else 0.0
+            
+            # Baseline metrics
+            baseline_rmse = float(unscaled_baseline_metrics.get(f"baseline_unscaled_rmse_target_{i}", 0.0))
+            
+            row = {
+                "target": tname,
+                "rmse": rmse,
+                "mae": mae,
+                "r2": r2,
+                "baseline_rmse": baseline_rmse,
+                "mean_actual": float(np.mean(col_actuals)),
+                "std_actual": float(np.std(col_actuals)),
+                "mean_pred": float(np.mean(col_preds)),
+                "std_pred": float(np.std(col_preds)),
+            }
+            summary_rows.append(row)
+        
+        # Add an overall mean row
+        overall_rmses = [r["rmse"] for r in summary_rows]
+        overall_maes = [r["mae"] for r in summary_rows]
+        overall_r2s = [r["r2"] for r in summary_rows]
+        overall_baseline_rmses = [r["baseline_rmse"] for r in summary_rows]
+        summary_rows.append({
+            "target": "MEAN",
+            "rmse": float(np.mean(overall_rmses)),
+            "mae": float(np.mean(overall_maes)),
+            "r2": float(np.mean(overall_r2s)),
+            "baseline_rmse": float(np.mean(overall_baseline_rmses)),
+            "mean_actual": float(np.mean([r["mean_actual"] for r in summary_rows[:-1]])),
+            "std_actual": float(np.mean([r["std_actual"] for r in summary_rows[:-1]])),
+            "mean_pred": float(np.mean([r["mean_pred"] for r in summary_rows[:-1]])),
+            "std_pred": float(np.mean([r["std_pred"] for r in summary_rows[:-1]])),
+        })
+        
+        summary_df = pd.DataFrame(summary_rows)
+        summary_df.to_csv(os.path.join(self.output_dir, "metrics_unscaled.csv"), index=False)
+        
+        # Also save unscaled metrics to YAML for easy reference
+        unscaled_yaml = {}
+        unscaled_yaml.update(unscaled_test_metrics)
+        unscaled_yaml.update(unscaled_baseline_metrics)
+        with open(os.path.join(self.output_dir, "metrics_unscaled.yaml"), 'w') as f_yaml:
+            yaml.dump(unscaled_yaml, f_yaml, sort_keys=False)
+        
+        print(f"Unscaled results saved to {self.output_dir}")

@@ -53,16 +53,18 @@ class SimplePipeline:
         tuning_trials = None
         param_importances = None
 
+        best_val_metrics_unscaled = {}
+
         if hyperparameter_mode == 'default':
             tqdm.write("Using Default Hyperparameters...")
             best_params = self.model_class.get_default_parameters()
             # Simple tuning passes raw data, so we must scale inside CV
-            best_val_loss, best_val_metrics = self._evaluate_params_cv(X, y, users, best_params, scale_data=True)
+            best_val_loss, best_val_metrics, best_val_metrics_unscaled = self._evaluate_params_cv(X, y, users, best_params, scale_data=True)
             
         else:
             tqdm.write("Performing Hyperparameter Tuning on full dataset using LOGO CV.")
             # Simple tuning passes raw data, so we must scale inside optimization loop
-            best_params, best_val_loss, best_val_metrics, tuning_trials, param_importances = self._optimize_hyperparameters(X, y, users, scale_data=True)
+            best_params, best_val_loss, best_val_metrics, best_val_metrics_unscaled, tuning_trials, param_importances = self._optimize_hyperparameters(X, y, users, scale_data=True)
 
         # --- Calculate Dummy Baseline for Comparison (CV) ---
         tqdm.write("Calculating Baseline Performance (CV)...")
@@ -130,6 +132,7 @@ class SimplePipeline:
             "test_actuals": np.zeros((len(y), y.shape[1])), # Placeholder
             "best_params": best_params,
             "val_metrics": best_val_metrics,
+            "val_metrics_unscaled": best_val_metrics_unscaled,
             "baseline_metrics": baseline_metrics,  # <-- ADD: store val baseline in fold_data
             "tuning_trials": tuning_trials,
             "param_importances": param_importances,
@@ -164,7 +167,7 @@ class SimplePipeline:
 
         # Prepare Data (Fit scaler on Train, Apply to Train & Test)
         # Using prepare_fold_data logic: X_train -> X_t, X_test -> X_v
-        Xt_s, yt_s, Xtest_s, ytest_s, _, _ = prepare_fold_data(X_train, y_train, X_test, y_test)
+        Xt_s, yt_s, Xtest_s, ytest_s, scaler_y, _ = prepare_fold_data(X_train, y_train, X_test, y_test)
 
         # Apply Feature Selection if in best_params
         Xt_s, Xtest_s = apply_feature_selection(Xt_s, yt_s, Xtest_s, 
@@ -179,7 +182,10 @@ class SimplePipeline:
         trainer.train_model(Xt_s, yt_s, epochs=self.config.get('epochs', 50))
         
         # Capture parameter count from the first trained model
-        model_total_params = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+        try:
+            model_total_params = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+        except (AttributeError, TypeError):
+            model_total_params = 0  # Sklearn / non-PyTorch models
         tqdm.write(f"Total trainable parameters: {model_total_params}")
         
         # Evaluate on X_test
@@ -190,20 +196,31 @@ class SimplePipeline:
         dummy_baseline = DummyBaseline()
         dummy_preds, dummy_loss = dummy_baseline.run(yt_s, ytest_s)
 
-        # Calculate Metrics
+        # Calculate Metrics (scaled)
         # Naming them 'test_' directly to match reporting expectations
         final_test_metrics = calculate_metrics([test_actuals], [test_preds], prefix="test")
         final_baseline_metrics = calculate_metrics([test_actuals], [dummy_preds], prefix="baseline")
+
+        # --- Inverse Transform to Original Scale ---
+        test_preds_unscaled = scaler_y.inverse_transform(test_preds)
+        test_actuals_unscaled = scaler_y.inverse_transform(test_actuals)
+        dummy_preds_unscaled = scaler_y.inverse_transform(dummy_preds)
+
+        # Calculate Metrics on Unscaled Data
+        unscaled_test_metrics = calculate_metrics([test_actuals_unscaled], [test_preds_unscaled], prefix="test_unscaled")
+        unscaled_baseline_metrics = calculate_metrics([test_actuals_unscaled], [dummy_preds_unscaled], prefix="baseline_unscaled")
 
         start_time_str, duration_str = stop_timer(start_dt, start_perf)
 
         tqdm.write("\n" + "="*40)
         tqdm.write(" FINAL TEST RESULTS (Hold-Out) ")
         tqdm.write(f" Test Loss: {test_loss:.3f}")
-        tqdm.write(f" Test RMSE: {final_test_metrics.get('test_rmse_mean', 0.0):.3f}")
+        tqdm.write(f" Test RMSE (scaled): {final_test_metrics.get('test_rmse_mean', 0.0):.3f}")
+        tqdm.write(f" Test RMSE (unscaled): {unscaled_test_metrics.get('test_unscaled_rmse_mean', 0.0):.3f}")
         tqdm.write("-" * 20)
         tqdm.write(f" Baseline Loss: {dummy_loss:.3f}")
-        tqdm.write(f" Baseline RMSE: {final_baseline_metrics.get('baseline_rmse_mean', 0.0):.3f}")
+        tqdm.write(f" Baseline RMSE (scaled): {final_baseline_metrics.get('baseline_rmse_mean', 0.0):.3f}")
+        tqdm.write(f" Baseline RMSE (unscaled): {unscaled_baseline_metrics.get('baseline_unscaled_rmse_mean', 0.0):.3f}")
         tqdm.write("="*40 + "\n")
 
         trainer.cleanup()
@@ -222,6 +239,10 @@ class SimplePipeline:
         final_results['test_loss'] = test_loss
         final_results['baseline_loss'] = dummy_loss
         
+        # Unscaled metrics
+        final_results['unscaled_test_metrics'] = unscaled_test_metrics
+        final_results['unscaled_baseline_metrics'] = unscaled_baseline_metrics
+        
         # Update Experiment Info
         final_results['experiment_info']['duration_final_test'] = duration_str
         final_results['experiment_info']['total_model_parameters'] = model_total_params
@@ -231,6 +252,9 @@ class SimplePipeline:
         # so that parity plots and error distributions reflect the Test Set performance.
         final_results['fold_data'][0]['test_preds'] = test_preds
         final_results['fold_data'][0]['test_actuals'] = test_actuals
+        final_results['fold_data'][0]['test_preds_unscaled'] = test_preds_unscaled
+        final_results['fold_data'][0]['test_actuals_unscaled'] = test_actuals_unscaled
+        final_results['fold_data'][0]['dummy_preds_unscaled'] = dummy_preds_unscaled
         final_results['fold_data'][0]['test_loss'] = test_loss
         final_results['fold_data'][0]['baseline_loss'] = dummy_loss
         
@@ -242,7 +266,7 @@ class SimplePipeline:
 
         return final_results
 
-    def _optimize_hyperparameters(self, X: tuple, y: torch.Tensor, users: np.ndarray, scale_data: bool = False) -> tuple[dict, float, dict, object, dict]:
+    def _optimize_hyperparameters(self, X: tuple, y: torch.Tensor, users: np.ndarray, scale_data: bool = False) -> tuple[dict, float, dict, dict, object, dict]:
         """Runs Optuna optimization using Inner LOGO."""
         optuna.logging.set_verbosity(optuna.logging.WARNING)
         n_trials = self.config.get('n_trials', 30)
@@ -252,28 +276,34 @@ class SimplePipeline:
         with tqdm(total=n_trials, desc="Hyperparam Tuning", leave=False) as pbar:
             def objective(trial):
                 params = self.model_class.get_hyperparameter_space(trial)
-                val_loss, val_metrics = self._evaluate_params_cv(X, y, users, params, scale_data=scale_data)
+                val_loss, val_metrics, val_metrics_unscaled = self._evaluate_params_cv(X, y, users, params, scale_data=scale_data)
                 trial.set_user_attr("val_metrics", val_metrics)
+                trial.set_user_attr("val_metrics_unscaled", val_metrics_unscaled)
                 pbar.update(1)
                 return val_loss
 
             study.optimize(objective, n_trials=n_trials, gc_after_trial=True)
 
         best_val_metrics = study.best_trial.user_attrs["val_metrics"]
+        best_val_metrics_unscaled = study.best_trial.user_attrs["val_metrics_unscaled"]
 
         try:
             importances = optuna.importance.get_param_importances(study)
         except Exception:
             importances = None
 
-        return study.best_params, study.best_trial.value, best_val_metrics, study.trials_dataframe(), importances
+        return study.best_params, study.best_trial.value, best_val_metrics, best_val_metrics_unscaled, study.trials_dataframe(), importances
 
-    def _evaluate_params_cv(self, X: tuple, y: torch.Tensor, users, params, scale_data: bool = False) -> tuple[float, dict]:
-        """Runs LOGO CV on the provided data with given params."""
+    def _evaluate_params_cv(self, X: tuple, y: torch.Tensor, users, params, scale_data: bool = False) -> tuple[float, dict, dict]:
+        """Runs LOGO CV on the provided data with given params.
+        Returns: (loss, val_metrics, val_metrics_unscaled)
+        """
         logo = AugmentedLOGO(include_augmented_in_test=False)
         all_val_preds = []
         all_val_actuals = []
         all_val_losses = []
+        all_val_preds_unscaled = []
+        all_val_actuals_unscaled = []
         
         splits = list(logo.split(groups=users))
         
@@ -282,9 +312,10 @@ class SimplePipeline:
             X_v = slice_data(X, val_idx)
             y_t, y_v = y[train_idx], y[val_idx]
             
+            scaler_y_fold = None
             if scale_data:
                 # If data is raw (Strategy B), we must scale per fold to avoid leakage
-                Xt_scaled, yt_scaled, Xv_scaled, yv_scaled, _, _ = prepare_fold_data(X_t, y_t, X_v, y_v)
+                Xt_scaled, yt_scaled, Xv_scaled, yv_scaled, scaler_y_fold, _ = prepare_fold_data(X_t, y_t, X_v, y_v)
             else:
                 # If data is already scaled, use as is
                 Xt_scaled, yt_scaled, Xv_scaled, yv_scaled = X_t, y_t, X_v, y_v
@@ -311,13 +342,22 @@ class SimplePipeline:
             all_val_actuals.append(val_actuals)
             all_val_losses.append(val_loss)
 
+            # Inverse transform to original scale if scaler available
+            if scaler_y_fold is not None:
+                all_val_preds_unscaled.append(scaler_y_fold.inverse_transform(val_preds))
+                all_val_actuals_unscaled.append(scaler_y_fold.inverse_transform(val_actuals))
+
             trainer.cleanup()
             del trainer
             
         val_metrics = calculate_metrics(all_val_preds, all_val_actuals, prefix="val")
         loss = float(np.mean(all_val_losses))
+
+        val_metrics_unscaled = {}
+        if all_val_preds_unscaled:
+            val_metrics_unscaled = calculate_metrics(all_val_actuals_unscaled, all_val_preds_unscaled, prefix="val_unscaled")
             
-        return loss, val_metrics
+        return loss, val_metrics, val_metrics_unscaled
 
     def _evaluate_baseline_cv(self, X: tuple, y: torch.Tensor, users) -> tuple[float, dict]:
         """

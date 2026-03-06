@@ -15,7 +15,7 @@ from automatic_assessment.framework.models.simple_models import SimpleMLPRegress
 from automatic_assessment.framework.models.mlp_path_shared import MLPSharedEncoder
 from automatic_assessment.framework.models.mlp_path_specific import MLPPathSpecific
 from automatic_assessment.framework.models.mlp_baseline import MLPBaseline
-from automatic_assessment.framework.models.sklearn.sklearn_models import LinearReg, ElasticNetReg, SVRReg, RandomForestReg, SGDReg
+from automatic_assessment.framework.models.sklearn.sklearn_models import LinearReg, ElasticNetReg, SVRReg, RandomForestReg, SGDReg, AutoSklearnReg, TabPFNReg
 from automatic_assessment.framework.models.timeseries.LSTM import HierarchicalTimeseriesLSTM
 from automatic_assessment.framework.models.timeseries.LSTM_baseline import LSTMBaseline
 from automatic_assessment.framework.models.timeseries.CNN_baseline import CNNBaseline
@@ -89,12 +89,12 @@ def main():
             
             config = {
                 "epochs": 30,
-                "hyperparameter_mode": 'optimize', # 'default', 'optimize'
+                "hyperparameter_mode": 'default', # 'default', 'optimize'
                 "n_trials": 30,  # Number of Optuna trials
                 "early_stopping_patience": 2,  # Stop training if val loss doesn't improve for N epochs (None to disable)
                 "targets": target_set,
                 "augmentation_ratio": ratio,
-                "note": "First with early stopping",
+                "note": "Final experiment",
             }
             
             # List of models to test
@@ -105,11 +105,19 @@ def main():
             # models_to_test = [CNNBaseline, LSTMBaseline]
             # models_to_test = [LSTMBaseline]
             # models_to_test = [CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline, LinearReg, ElasticNetReg, SVRReg, RandomForestReg]
-            models_to_test = [BASEBaselineNORM, BASEBaseline, MLPSharedEncoderFLAT, BASEBaselineFLAT, CNNBaselineNOEMBED, CNNBaselineNOEMBEDFLAT]
+            # models_to_test = [BASEBaselineNORM, BASEBaseline, MLPSharedEncoderFLAT, BASEBaselineFLAT, CNNBaselineNOEMBED, CNNBaselineNOEMBEDFLAT]
+            # models_to_test = [LSTMBaseline, BASEBaseline, MLPSharedEncoderFLAT, BASEBaselineFLAT, CNNBaselineNOEMBED, CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline]
+            # models_to_test = [TabPFNReg] #AutoSklearnReg
+            models_to_test = [CNNBaselineNOEMBED]
 
             
             for model_class in models_to_test:
                 model_name = model_class.model_name
+                if model_name == "LSTM_Baseline":
+                    config["epochs"] = 50
+                else:
+                    config["epochs"] = 30
+
                 print(f"\n{'='*60}")
                 print(f"STARTING EXPERIMENT FOR: {model_name}")
                 print(f"{'='*60}\n")

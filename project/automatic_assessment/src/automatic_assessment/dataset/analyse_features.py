@@ -506,10 +506,10 @@ def main():
     # compare_target_csvs(targets_old, targets)
     
     # 3. Correlation Plot
-    # analyze_correlations(features, targets, threshold=0.5)
+    analyze_correlations(features, targets, threshold=0.5)
 
     # 4. Feature Retention Analysis
-    analyze_feature_retention(features, targets)
+    # analyze_feature_retention(features, targets)
 
 if __name__ == "__main__":
     main()

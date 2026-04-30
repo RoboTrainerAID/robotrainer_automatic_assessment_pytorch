@@ -1,0 +1,10 @@
+parameter,importance
+path_dim,0.29054798808046967
+dropout_reg,0.25790468374494874
+lr,0.25758577955268913
+dropout_path,0.07751759046802037
+regressor_dim,0.052831535369629735
+n_path_features,0.04225450947244743
+weight_decay,0.021357913311794985
+path_aggregation,0.0
+batch_size,0.0

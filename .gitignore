@@ -5,6 +5,7 @@ setup/.vendor/*
 legacy
 # project/*
 project/automatic_assessment/experiment_results/*
+!project/automatic_assessment/experiment_results/final_best
 project/experiment_results/*
 !project/.vscode
 token.txt

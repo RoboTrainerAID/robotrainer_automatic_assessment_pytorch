@@ -1,0 +1,47 @@
+experiment_info:
+  start_time: '2026-03-01 15:54:13'
+  duration: 0:47:53
+  input_shapes:
+    shape_X_ts:
+    - 25
+    - 20
+    - 32
+    - 15573
+    shape_X_path:
+    - 25
+    - 20
+    - 78
+    shape_X_user:
+    - 25
+    - 2
+    shape_y:
+    - 25
+    - 8
+  total_model_parameters: 483392
+  strategy: simple_tuning
+  duration_final_test: 0:00:01
+pipeline_config:
+  epochs: 30
+  hyperparameter_mode: optimize
+  n_trials: 30
+  early_stopping_patience: 2
+  targets:
+  - Robotrainer Front
+  - Robotrainer Left
+  - Robotrainer Right
+  - Hand Grip Left
+  - Hand Grip Right
+  - Jump & Reach
+  - Figure 8 Walk
+  - Ruler Drop Test
+  augmentation_ratio: 0
+  note: Final experiment
+best_params:
+  lr: 0.00017271619603150752
+  weight_decay: 0.004212801460325797
+  batch_size: 6
+  n_layers: 3
+  hidden_dim: 384
+  shrink_factor: 0.75
+  dropout: 0.11464010415756672
+  n_path_features: 40

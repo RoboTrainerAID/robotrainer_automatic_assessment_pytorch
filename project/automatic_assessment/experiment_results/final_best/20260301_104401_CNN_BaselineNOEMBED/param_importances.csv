@@ -1,0 +1,9 @@
+parameter,importance
+lr,0.8343763601814227
+weight_decay,0.0606979325896986
+n_path_features,0.04359135495011318
+regressor_dim,0.036599313962740174
+dropout_reg,0.01851947278515229
+cnn_channels,0.006215565530873081
+path_aggregation,0.0
+batch_size,0.0

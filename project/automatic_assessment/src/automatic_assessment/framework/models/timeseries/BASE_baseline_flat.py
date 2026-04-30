@@ -132,14 +132,14 @@ class BASEBaselineFLAT(BaseModel):
     @staticmethod
     def get_default_parameters() -> Dict[str, Any]:
         return {
-            "path_dim": 12,
-            "dropout_path": 0.2,
-            "path_aggregation": "mean",
-            "regressor_dim": 48,
-            "dropout_reg": 0.2,
-            "lr": 0.0008957476788727834,
-            "weight_decay": 0.00954951015873937,
+            "path_dim": 4,
+            "dropout_path": 0.22655060308520866,
+            "path_aggregation": "flatten",
+            "regressor_dim": 512,
+            "dropout_reg": 0.30335589862608825,
+            "lr": 0.0008887240577211731,
+            "weight_decay": 0.002222430039021746,
             "batch_size": 6,
             # "correlation_threshold": 0.1
-            "n_path_features": 50,
+            "n_path_features": 30,
         }

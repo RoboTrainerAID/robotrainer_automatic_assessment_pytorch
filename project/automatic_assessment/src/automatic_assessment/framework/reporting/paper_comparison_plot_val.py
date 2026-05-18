@@ -138,7 +138,7 @@ def plot_best_model(
 
     n = len(TARGET_PREFIXES)
     x = np.arange(n)
-    width = 0.5
+    width = 0.6
 
     fig, ax = plt.subplots(figsize=(6.5, 4))
 
@@ -192,16 +192,31 @@ def plot_best_model(
                 unit = TARGET_META[tp]["unit"]
                 
                 if col_name in targets_df.columns:
-                    std_val = targets_df[col_name].dropna().std()
-                    unscaled_err = std_val * h
+                    target_series = targets_df[col_name].dropna()
+                    std_val = target_series.std()
+                    mean_val = target_series.mean()
+                    min_val = target_series.min()
+                    max_val = target_series.max()
+                    range_val = max_val - min_val
                     
-                    bottom_text = f"std\n{std_val:.1f} {unit}\n\nrmse\n{unscaled_err:.1f} {unit}"
+                    unscaled_err = std_val * h
+
+                    error_percentage = (unscaled_err / mean_val) * 100
+                    
+                    bottom_text = (
+                        f"mean\n{mean_val:.0f} {unit}\n\n"
+                        f"range\n{range_val:.0f} {unit}\n\n"
+                        f"std\n{std_val:.1f} {unit}\n\n"
+                        f"rmse\n{unscaled_err:.1f} {unit}\n"
+                        f"({error_percentage:.0f} %)"
+                    )
+                    
                     ax.text(
                         bar.get_x() + bar.get_width() / 2,
                         0.05,
                         bottom_text,
-                        ha="center", va="bottom", fontsize=6,
-                        color="black", fontweight="bold",
+                        ha="center", va="bottom", fontsize=5,
+                        color="white", fontweight="bold",
                     )
 
     # Axes

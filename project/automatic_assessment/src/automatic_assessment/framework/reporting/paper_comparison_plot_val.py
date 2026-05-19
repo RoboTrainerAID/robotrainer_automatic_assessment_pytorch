@@ -58,7 +58,7 @@ TARGET_PREFIXES: List[str] = [
     "hand_grip_left",
     "hand_grip_right",
     "jump_and_reach",
-    "figure_8_walk",
+    #"figure_8_walk",
     "ruler_drop_test",
 ]
 
@@ -70,7 +70,7 @@ TARGET_LABELS: List[str] = [
     "Hand\nGrip Left",
     "Hand Grip\nRight",
     "Jump &\nReach",
-    "Figure-8\nWalk",
+    #"Figure-8\nWalk",
     "Ruler\nDrop",
 ]
 
@@ -147,24 +147,24 @@ def plot_best_model(
 
     bars_val = ax.bar(
         x, val_rmse, width,
-        label="Validation", color=color_val, edgecolor="none",
+        color=color_val, edgecolor="none",
     )
 
     # Baseline markers
-    ax.scatter(
-        x, val_bl,
-        marker="D", s=40, zorder=5,
-        facecolors=color_val, edgecolors="black", linewidths=0.7,
-        label="Val Mean Baseline",
-    )
+    # ax.scatter(
+    #     x, val_bl,
+    #     marker="D", s=40, zorder=5,
+    #     facecolors=color_val, edgecolors="black", linewidths=0.7,
+    #     label="Mean from training set",
+    # )
 
     # Reference line at 1.0
-    ax.axhline(1.0, color="grey", linestyle="--", linewidth=1.0, alpha=0.7, label="RMSE = 1.0")
+    ax.axhline(1.0, color="grey", linestyle="--", linewidth=1.0, alpha=0.7, label="RMSE = 1.0 std")
 
     # Bar value labels
     # For the last 3 targets the val baseline diamond sits right above the
     # val bar, so place those labels *inside* the bar instead.
-    _obstructed_val = set(range(n - 3, n))  # indices 5, 6, 7
+    _obstructed_val = set(range(n - 2, n))  # indices 5, 6, 7
 
     for bar_idx, bar in enumerate(bars_val):
         h = bar.get_height()
@@ -205,7 +205,6 @@ def plot_best_model(
                     
                     bottom_text = (
                         f"mean\n{mean_val:.0f} {unit}\n\n"
-                        f"range\n{range_val:.0f} {unit}\n\n"
                         f"std\n{std_val:.1f} {unit}\n\n"
                         f"rmse\n{unscaled_err:.1f} {unit}\n"
                         f"({error_percentage:.0f} %)"
@@ -226,7 +225,7 @@ def plot_best_model(
     y_max = np.nanmax(val_bl) * 1.03
     ax.set_ylim(0, y_max)
     ax.set_xlim(x[0] - width - 0.08, x[-1] + width + 0.08)
-    ax.legend(loc="center right", frameon=True, framealpha=0.9, edgecolor="lightgrey")
+    ax.legend(loc="upper right", frameon=True, framealpha=0.9, edgecolor="lightgrey")
 
     save_path = os.path.join(output_dir, filename)
     fig.savefig(save_path)

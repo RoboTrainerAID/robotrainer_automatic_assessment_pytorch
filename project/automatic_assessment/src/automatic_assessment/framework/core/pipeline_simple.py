@@ -141,6 +141,7 @@ class SimplePipeline:
 
         final_results = {
             "test_metrics": {k.replace('val_', 'test_'): v for k,v in best_val_metrics.items()}, # Map val -> test for reporting
+            "unscaled_test_metrics": best_val_metrics_unscaled.copy(), # Add this explicitly
             "baseline_metrics": baseline_metrics,
             "test_loss": best_val_loss,
             "baseline_loss": baseline_loss,

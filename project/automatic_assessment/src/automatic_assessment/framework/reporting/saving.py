@@ -262,6 +262,7 @@ class SavingModule:
         """
         Saves unscaled (inverse-transformed) predictions and per-target metrics
         including mean, std, RMSE, MAE, and R2 to CSV files.
+        Also saves validation unscaled metrics if available.
         """
         unscaled_test_metrics = results.get('unscaled_test_metrics', {})
         unscaled_baseline_metrics = results.get('unscaled_baseline_metrics', {})
@@ -276,6 +277,12 @@ class SavingModule:
         
         if preds_unscaled is None or actuals_unscaled is None:
             return
+        
+        # Save validation unscaled metrics if available (from tuning phase)
+        val_metrics_unscaled = f0.get('val_metrics_unscaled', {})
+        if val_metrics_unscaled:
+            with open(os.path.join(self.output_dir, "metrics_unscaled_validation.yaml"), 'w') as f_val:
+                yaml.dump(val_metrics_unscaled, f_val, sort_keys=False)
         
         # --- 1. Save predictions_unscaled.csv ---
         user_ids = f0.get('user_id', [])

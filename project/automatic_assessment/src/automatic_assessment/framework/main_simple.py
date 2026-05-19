@@ -94,7 +94,7 @@ def main():
                 "early_stopping_patience": 2,  # Stop training if val loss doesn't improve for N epochs (None to disable)
                 "targets": target_set,
                 "augmentation_ratio": ratio,
-                "note": "Final experiment",
+                "note": "generate unscaled values",
             }
             
             # List of models to test
@@ -108,7 +108,7 @@ def main():
             # models_to_test = [BASEBaselineNORM, BASEBaseline, MLPSharedEncoderFLAT, BASEBaselineFLAT, CNNBaselineNOEMBED, CNNBaselineNOEMBEDFLAT]
             # models_to_test = [LSTMBaseline, BASEBaseline, MLPSharedEncoderFLAT, BASEBaselineFLAT, CNNBaselineNOEMBED, CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline]
             # models_to_test = [TabPFNReg] #AutoSklearnReg
-            models_to_test = [CNNBaselineNOEMBED]
+            models_to_test = [BASEBaselineFLAT]
 
             
             for model_class in models_to_test:

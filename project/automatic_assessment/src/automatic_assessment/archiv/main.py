@@ -3,7 +3,7 @@ import os
 # Set memory management configuration to avoid fragmentation
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True,max_split_size_mb:512"
 
-from automatic_assessment.framework.core.pipeline import Pipeline
+from automatic_assessment.archiv.pipeline import Pipeline
 from automatic_assessment.framework.models.timeseries.cnn1d import CNN1D
 from automatic_assessment.framework.models.timeseries.hierarchical_cnn import HierarchicalCNN
 from automatic_assessment.framework.models.timeseries.mlp import SimpleMLP

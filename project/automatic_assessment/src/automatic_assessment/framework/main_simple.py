@@ -89,8 +89,8 @@ def main():
             
             config = {
                 "epochs": 30,
-                "hyperparameter_mode": 'optimize', # 'default', 'optimize'
-                "n_trials": 10,  # Number of Optuna trials
+                "hyperparameter_mode": 'default', # 'default', 'optimize'
+                "n_trials": 30,  # Number of Optuna trials
                 "early_stopping_patience": 2,  # Stop training if val loss doesn't improve for N epochs (None to disable)
                 "targets": target_set,
                 "augmentation_ratio": ratio,

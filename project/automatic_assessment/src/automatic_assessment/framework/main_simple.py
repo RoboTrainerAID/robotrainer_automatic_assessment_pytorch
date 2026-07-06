@@ -89,12 +89,12 @@ def main():
             
             config = {
                 "epochs": 30,
-                "hyperparameter_mode": 'default', # 'default', 'optimize'
-                "n_trials": 30,  # Number of Optuna trials
+                "hyperparameter_mode": 'optimize', # 'default', 'optimize'
+                "n_trials": 20,  # Number of Optuna trials
                 "early_stopping_patience": 2,  # Stop training if val loss doesn't improve for N epochs (None to disable)
                 "targets": target_set,
                 "augmentation_ratio": ratio,
-                "note": "generate unscaled values",
+                "note": "new example run for claude code",
             }
             
             # List of models to test

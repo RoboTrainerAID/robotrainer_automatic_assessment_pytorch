@@ -4,6 +4,8 @@ import torch.nn.functional as F
 from typing import Dict, Any, List
 
 from ..base import BaseModel
+from .masking import mask_lengths
+from ...data.schema import split_inputs, group_shapes
 
 
 class HierarchicalTimeseriesLSTM(BaseModel):
@@ -15,13 +17,12 @@ class HierarchicalTimeseriesLSTM(BaseModel):
         # ============================================================
         # Input Dimensions
         # ============================================================
-        ts_shape = input_dims[0]
-        self.n_paths = ts_shape[1]
-        self.n_ts_per_path = ts_shape[2]
-        self.ts_len = ts_shape[3]
-
-        self.f_path = input_dims[1][2]
-        self.f_user = input_dims[2][1]
+        path_shape, user_shape, groups = group_shapes(input_dims)
+        self.n_paths = path_shape[1]
+        self.f_path = path_shape[2]
+        self.f_user = user_shape[1]
+        # total number of channels across all groups (shared 1-ch LSTM)
+        self.n_ts_per_path = sum(g_x_shape[2] for (g_x_shape, _) in groups)
 
         # ============================================================
         # Hyperparameters
@@ -101,50 +102,49 @@ class HierarchicalTimeseriesLSTM(BaseModel):
         self.last_attn_weights = None
 
     # ================================================================
-    # Utility — compute lengths from zero padding
-    # ================================================================
-    def _compute_lengths(self, x):
-        # x shape: (N, seq)
-        mask = x.abs() > 1e-8
-        lengths = mask.sum(dim=1).clamp(min=1)
-        return lengths.cpu()
-
-    # ================================================================
     # Forward
     # ================================================================
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
-        x_ts, x_path, x_user = x
-        B = x_ts.shape[0]
+        x_path, x_user, groups = split_inputs(x)
+        B = x_path.shape[0]
 
         # ------------------------------------------------------------
-        # Flatten → each timeseries independent
-        # (B, paths, ts, len) → (B*paths*ts, len)
+        # Shared single-channel LSTM over EVERY channel of EVERY group.
+        # Groups have different rates/lengths — each channel is packed
+        # to its own mask-derived length, so the recurrence skips
+        # padding entirely.
         # ------------------------------------------------------------
         all_ts_feats = []
 
-        for ts_idx in range(self.n_ts_per_path):
+        for x_g, mask_g in groups:
+            T = x_g.shape[3]
+            n_channels = x_g.shape[2]
 
-            ts = x_ts[:, :, ts_idx, :]        # (B, paths, len)
-            ts = ts.reshape(-1, self.ts_len)  # (B*paths, len)
+            for ts_idx in range(n_channels):
 
-            lengths = self._compute_lengths(ts)
-            ts = ts.unsqueeze(-1)
+                ts = x_g[:, :, ts_idx, :]         # (B, paths, len)
+                ts = ts.reshape(-1, T)            # (B*paths, len)
 
-            packed = nn.utils.rnn.pack_padded_sequence(
-                ts, lengths, batch_first=True, enforce_sorted=False
-            )
+                # per-channel validity mask (never infer lengths from values!)
+                ch_mask = mask_g[:, :, ts_idx, :].reshape(-1, T)
+                lengths = mask_lengths(ch_mask)
+                ts = ts.unsqueeze(-1)
 
-            _, (h_n, _) = self.lstm(packed)
+                packed = nn.utils.rnn.pack_padded_sequence(
+                    ts, lengths, batch_first=True, enforce_sorted=False
+                )
 
-            if self.bidirectional:
-                forward_hidden = h_n[-2]
-                backward_hidden = h_n[-1]
-                feat = torch.cat([forward_hidden, backward_hidden], dim=1)
-            else:
-                feat = h_n[-1]
+                _, (h_n, _) = self.lstm(packed)
 
-            feat = feat.view(B, self.n_paths, -1)
-            all_ts_feats.append(feat)
+                if self.bidirectional:
+                    forward_hidden = h_n[-2]
+                    backward_hidden = h_n[-1]
+                    feat = torch.cat([forward_hidden, backward_hidden], dim=1)
+                else:
+                    feat = h_n[-1]
+
+                feat = feat.view(B, self.n_paths, -1)
+                all_ts_feats.append(feat)
 
         ts_feats = torch.stack(all_ts_feats, dim=2)
         ts_feats = ts_feats.mean(dim=2)

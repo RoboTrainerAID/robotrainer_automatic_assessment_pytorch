@@ -45,14 +45,15 @@ class SklearnBaseModel(BaseEstimator):
 
     def _flatten_inputs(self, x: Union[List[torch.Tensor], tuple]) -> np.ndarray:
         """
-        Converts the standardized input tuple (x_ts, x_path, x_user) into a single 
+        Converts the standardized input tuple (x_path, x_user, *ts_groups) into a single 
         flattened numpy array [N, Features].
-        Ignores x_ts usually, takes x_path and x_user.
+        Ignores the timeseries groups, takes x_path and x_user.
         """
         if isinstance(x, (list, tuple)):
             # x_ts is usually ignored in simple baselines unless we extract features
             # Here we follow the logic: flatten(path) + user
-            _, x_path, x_user = x
+            # Input convention: (x_path, x_user, *ts_groups)
+            x_path, x_user = x[0], x[1]
         else:
             # Fallback if x is already single tensor
             return x.detach().cpu().numpy()
@@ -75,7 +76,7 @@ class SklearnBaseModel(BaseEstimator):
         """
         Trains the internal sklearn model.
         Args:
-            X: Tuple of tensors (x_ts, x_path, x_user)
+            X: Input tuple (x_path, x_user, *ts_groups)
             y: Tensor target (N, T)
         """
         X_flat = self._flatten_inputs(X)

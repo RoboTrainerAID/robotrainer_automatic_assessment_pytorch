@@ -172,28 +172,42 @@ def select_multitarget_top_features_lars(X: np.ndarray, y: np.ndarray, top_n_fea
     # -------------------------------------------------------
     # Run LARS for each target
     # -------------------------------------------------------
+    failed_targets = []
     for t_idx in range(n_targets):
         target_vals = y_flat[:, t_idx]
-        
+
         if np.isnan(target_vals).any():
             per_target_top[t_idx] = []
+            failed_targets.append((t_idx, "target contains NaN values"))
+            tqdm.write(f"[LARS Selection] WARNING: target {t_idx} skipped — contains NaN values.")
             continue
-            
+
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=ConvergenceWarning)
                 _, active_indices, _ = lars_path(X_flat, target_vals, method='lasso')
-            
+
             # Store ordered active indices for this target
             per_target_top[t_idx] = list(active_indices)
-            
+
             # Count votes from a reasonable depth
             vote_depth = min(top_n_features//2, len(active_indices))
             for feat_idx in active_indices[:vote_depth]:
                 feature_votes[feat_idx] += 1
-                
+
         except Exception as e:
             per_target_top[t_idx] = []
+            failed_targets.append((t_idx, repr(e)))
+            tqdm.write(f"[LARS Selection] WARNING: lars_path failed for target {t_idx}: {e!r}")
+
+    # If selection failed for EVERY target, the caller would silently
+    # continue without any feature selection — fail loudly instead.
+    if len(failed_targets) == n_targets:
+        raise RuntimeError(
+            "[LARS Selection] Feature selection failed for ALL targets — "
+            "no features could be selected. Failures: "
+            + "; ".join(f"target {t}: {msg}" for t, msg in failed_targets)
+        )
 
     # -------------------------------------------------------
     # Phase 1: Per-target guaranteed selection

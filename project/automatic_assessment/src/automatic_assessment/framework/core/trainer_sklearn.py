@@ -13,6 +13,8 @@ class SklearnTrainer:
         self.model_class = model_class
         self.hyperparams = hyperparams
         self.model = self.model_class(input_dims, output_dim, hyperparams)
+        # Interface parity with Trainer (sklearn models fit in one "epoch")
+        self.last_best_epoch = 1
         
     def train_model(self, X_train: tuple, y_train: torch.Tensor, epochs: int = 1, X_val: tuple = None, y_val: torch.Tensor = None) -> List[float]:
         """

@@ -67,7 +67,8 @@ class BaseModel(nn.Module):
             dummy_input.append(torch.zeros(dummy_shape))
             
         try:
-            # Pass input_data as a list of args. Argument 0 is the list [x_ts, x_path, x_user].
+            # Pass input_data as a list of args. Argument 0 is the input list
+            # (x_path, x_user, g0_x, g0_mask, ...).
             # Models expect a single list argument containing the tensors
             summary(dummy_model, input_data=[dummy_input])
         except Exception as e:

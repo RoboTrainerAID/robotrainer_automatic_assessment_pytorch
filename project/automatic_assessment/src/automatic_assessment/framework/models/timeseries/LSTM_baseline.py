@@ -3,68 +3,53 @@ import torch.nn as nn
 from typing import Dict, Any, List
 
 from ..base import BaseModel
+from .masking import timestep_mask, masked_mean_over_time, mask_lengths
+from ...data.schema import split_inputs, group_shapes
 
-
-# =========================================================
-# helpers
-# =========================================================
-
-def masked_mean(x: torch.Tensor, lengths: torch.Tensor):
-    device = x.device
-    mask = torch.arange(x.size(1), device=device)[None, :] < lengths[:, None]
-    mask = mask.float().unsqueeze(-1)
-    x = x * mask
-    return x.sum(1) / lengths.clamp(min=1).unsqueeze(-1)
-
-
-def compute_lengths_flat(x_flat: torch.Tensor):
-    # x_flat: (N,T)
-    valid = (x_flat.abs() > 1e-8)
-
-    # last valid index from end
-    last_valid = valid.flip(1).float().argmax(dim=1)
-    lengths = x_flat.size(1) - last_valid
-    return lengths.clamp(min=1)
-
-
-# =========================================================
-# MODEL
-# =========================================================
 
 class LSTMBaseline(BaseModel):
+    """
+    One LSTM encoder PER CHANNEL GROUP (mechanical / physiological /
+    gait — see config.TS_MODEL_GROUPS). Groups keep their native sampling
+    rates and lengths. Sequences are packed with mask-derived lengths, so
+    the recurrence skips the padded tails entirely (no wasted compute on
+    padding); pooling uses the group's validity mask.
+    """
+
     model_name = "LSTM_Baseline"
 
     def __init__(self, input_dims, output_dim, hyperparams):
         super().__init__(input_dims, output_dim, hyperparams)
 
-        ts_shape = input_dims[0]
-        self.n_paths = ts_shape[1]
-        self.n_ts = ts_shape[2]
-        self.max_timesteps = ts_shape[3]
-
-        path_shape = input_dims[1]
+        path_shape, user_shape, groups = group_shapes(input_dims)
+        self.n_paths = path_shape[1]
         self.f_path = path_shape[2]
-
-        user_shape = input_dims[2]
         self.f_user = user_shape[1]
+        self.n_groups = len(groups)
 
         hp = hyperparams
 
         self.lstm_hidden = hp["lstm_hidden"]
 
-        self.lstm = nn.LSTM(
-            input_size=self.n_ts,
-            hidden_size=self.lstm_hidden,
-            num_layers=hp["lstm_layers"],
-            dropout=hp["dropout_lstm"] if hp["lstm_layers"] > 1 else 0.0,
-            batch_first=True,
-            bidirectional=False,
-        )
+        # One LSTM per group (input size = group channel count)
+        self.lstms = nn.ModuleList([
+            nn.LSTM(
+                input_size=g_x_shape[2],
+                hidden_size=self.lstm_hidden,
+                num_layers=hp["lstm_layers"],
+                dropout=hp["dropout_lstm"] if hp["lstm_layers"] > 1 else 0.0,
+                batch_first=True,
+                bidirectional=False,
+            )
+            for (g_x_shape, _) in groups
+        ])
+
+        self.ts_feat_dim = self.lstm_hidden * self.n_groups
 
         self.path_dim = hp["path_dim"]
 
         self.path_bottleneck = nn.Sequential(
-            nn.Linear(self.lstm_hidden + self.f_path, self.path_dim),
+            nn.Linear(self.ts_feat_dim + self.f_path, self.path_dim),
             nn.ReLU(),
             nn.Dropout(hp["dropout_path"])
         )
@@ -88,49 +73,52 @@ class LSTMBaseline(BaseModel):
 
     # -----------------------------------------------------
 
-    def encode_timeseries(self, x_ts):
-        # (B,P,TS,T)
-        B, P, TS, T = x_ts.shape
+    def encode_timeseries(self, groups) -> torch.Tensor:
+        """
+        Encodes every channel group with its own LSTM (packed to the
+        mask-derived true lengths) and masked mean pooling, then
+        concatenates the group embeddings.
 
-        # compute path lengths
-        x_path = x_ts.abs().sum(dim=2)  # collapse TS
-        x_path = x_path.view(B * P, T)
-        l = compute_lengths_flat(x_path).cpu()
+        Args:
+            groups: list of (x_g, mask_g) with x_g: (B, P, C_g, T_g)
 
-        # reorder → (B,P,T,TS)
-        x = x_ts.permute(0, 1, 3, 2)
+        Returns:
+            (B, P, lstm_hidden * n_groups)
+        """
+        pooled_groups = []
+        for lstm, (x_g, mask_g) in zip(self.lstms, groups):
+            B, P, C, T = x_g.shape
 
-        # flatten → (B*P,T,TS)
-        x = x.reshape(B * P, T, TS)
+            # per-timestep validity from the explicit mask (never from values!)
+            t_mask = timestep_mask(mask_g).view(B * P, T)
+            lengths = mask_lengths(t_mask)
 
-        packed = nn.utils.rnn.pack_padded_sequence(
-            x,
-            l,
-            batch_first=True,
-            enforce_sorted=False,
-        )
+            # (B,P,C,T) -> (B*P, T, C)
+            seq = x_g.permute(0, 1, 3, 2).reshape(B * P, T, C)
 
-        out, _ = self.lstm(packed)
+            packed = nn.utils.rnn.pack_padded_sequence(
+                seq, lengths, batch_first=True, enforce_sorted=False,
+            )
 
-        padded, _ = nn.utils.rnn.pad_packed_sequence(
-            out,
-            batch_first=True,
-            total_length=T,
-        )
+            out, _ = lstm(packed)
 
-        pooled = masked_mean(padded, l.to(padded.device))
+            padded, _ = nn.utils.rnn.pad_packed_sequence(
+                out, batch_first=True, total_length=T,
+            )
 
-        pooled = pooled.view(B, P, pooled.shape[-1])
-        return pooled
+            pooled = masked_mean_over_time(padded, t_mask)
+            pooled_groups.append(pooled.view(B, P, -1))
+
+        return torch.cat(pooled_groups, dim=-1)
 
     # -----------------------------------------------------
 
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
-        x_ts, x_path, x_user = x
+        x_path, x_user, groups = split_inputs(x)
 
-        ts_paths = self.encode_timeseries(x_ts)  # (B,P,H)
+        ts_paths = self.encode_timeseries(groups)               # (B,P,ts_feat_dim)
 
-        path_combined = torch.cat([ts_paths, x_path], dim=-1)   # (B,P,Hts+f_path)
+        path_combined = torch.cat([ts_paths, x_path], dim=-1)   # (B,P,ts+f_path)
         path_feat = self.path_bottleneck(path_combined)         # (B,P,path_dim)
 
         if self.path_aggregation == "mean":
@@ -139,7 +127,7 @@ class LSTMBaseline(BaseModel):
             att = self.path_attention(path_feat)
             att = torch.softmax(att, dim=1)
 
-            path_global = (path_feat * att).sum(dim=1)               # (B,path_dim)
+            path_global = (path_feat * att).sum(dim=1)          # (B,path_dim)
 
         fused = torch.cat([path_global, x_user], dim=1)
 
@@ -157,7 +145,7 @@ class LSTMBaseline(BaseModel):
             "dropout_lstm": trial.suggest_float("dropout_lstm", 0.1, 0.4),
             "path_dim": trial.suggest_categorical("path_dim", [8, 12, 16]),
             "dropout_path": trial.suggest_float("dropout_path", 0.1, 0.6),
-            "path_aggregation": trial.suggest_categorical("path_aggregation", ["mean"]), #"attention", 
+            "path_aggregation": trial.suggest_categorical("path_aggregation", ["mean"]), #"attention",
             "regressor_dim": trial.suggest_categorical("regressor_dim", [32, 48, 64]),
             "dropout_reg": trial.suggest_float("dropout_reg", 0.1, 0.4),
             "lr": trial.suggest_float("lr", 5e-5, 5e-3, log=True),

@@ -11,6 +11,8 @@ from automatic_assessment.framework.core.pipeline_simple import SimplePipeline
 from automatic_assessment.framework.reporting.saving import SavingModule
 from automatic_assessment.framework.reporting.visualization import VisualizationModule
 from automatic_assessment.framework.data.dataset import AssessmentDataset
+from automatic_assessment.framework.data.results import ExperimentConfig
+from automatic_assessment.framework.utils.seed import set_global_seed
 from automatic_assessment.framework.models.simple_models import SimpleMLPRegressor, ElasticNetModel, LinearRegressionModel, RandomForestLikeMLP
 from automatic_assessment.framework.models.mlp_path_shared import MLPSharedEncoder
 from automatic_assessment.framework.models.mlp_path_specific import MLPPathSpecific
@@ -25,22 +27,25 @@ from automatic_assessment.framework.models.timeseries.BASE_baseline_flat import 
 from automatic_assessment.framework.models.timeseries.CNN_baseline_no_embedding import CNNBaselineNOEMBED
 from automatic_assessment.framework.models.timeseries.CNN_baseline_no_embedding_flat import CNNBaselineNOEMBEDFLAT
 from automatic_assessment.framework.models.timeseries.BASE_baseline_norm import BASEBaselineNORM
+from automatic_assessment.framework.models.timeseries.TCN_multiscale import MultiScaleTCN
+from automatic_assessment.framework.models.timeseries.CNN_hybrid_fusion import HybridCNNGRUFusion
 
 
 def main():
 
     dataset_train = AssessmentDataset("/data/train")
 
-    # X tuple: (x_ts, x_path, x_user)
-    #     1. x_ts: Time-Series Dataset
-    #         - Shape (variable): (n_samples, n_paths, n_timeseries, variable_length)
-    #         - Values: (25, 20, 32, variable_timesteps)
-    #     2. x_path: Path-Level Dataset
-    #         - Shape: (n_samples, n_paths, n_path_features)
-    #         - Values: (25, 20, 73)
-    #     3. x_user: User-Level Dataset
-    #         - Shape: (n_samples, n_user_features)
-    #         - Values: (25, 2)
+    # X tuple: (x_path, x_user, g0_x, g0_mask, g1_x, g1_mask, ...)
+    #     1. x_path: Path-Level Dataset
+    #         - Shape: (n_samples, n_paths, n_path_features), e.g. (25, 20, 88)
+    #     2. x_user: User-Level Dataset
+    #         - Shape: (n_samples, n_user_features), e.g. (25, 2)
+    #     3.+ Timeseries channel groups (config.TS_MODEL_GROUPS order:
+    #         mechanical @ 50 Hz, physiological @ 2 Hz, gait @ 2 Hz),
+    #         each as a (values, bool-mask) tensor pair of shape
+    #         (n_samples, n_paths, n_group_channels, T_group).
+    #         Groups keep their native resolution and are NOT aligned
+    #         to each other; padding is 0 with mask=False.
 
     # y: Targets
     #     - Shape: (n_samples, n_targets)
@@ -70,32 +75,30 @@ def main():
     # targets_to_test = [all] + [best_performing_targets] + singles_list
     targets_to_test = [best_performing_targets]
 
+    # Augmentation ratio sweep: clones are precomputed in the train split
+    # (up to config.AUGMENTATION['max_ratio']); the view below selects how
+    # many are used — no data regeneration between ratios.
     # augmentation_range = [0, 1, 2, 3, 4, 5]
     augmentation_range = [0]
 
     for ratio in augmentation_range:
-        # print(f"Creating augmented dataset with ratio: {ratio}")
-        
-        # Note: Augmentation logic is currently a placeholder in dataset.py
-        # dataset.create_augmented_dataset(ratio)
-
         for target_set in targets_to_test:
-            print(f"\n\n=== Selecting Targets: {target_set} ===\n")
+            print(f"\n\n=== Targets: {target_set} | augmentation ratio: {ratio} ===\n")
 
-            # Select targets 
-            dataset_train.perform_target_selection(target_set)
-
-            X_train, y_train, users_train, feature_names = dataset_train.get_all()
+            # Immutable selection of targets + augmentation ratio (R11)
+            view_train = dataset_train.view(targets=target_set, augmentation_ratio=ratio)
+            X_train, y_train, users_train, feature_names = view_train.get_all()
             
-            config = {
-                "epochs": 30,
-                "hyperparameter_mode": 'default', # 'default', 'optimize'
-                "n_trials": 30,  # Number of Optuna trials
-                "early_stopping_patience": 2,  # Stop training if val loss doesn't improve for N epochs (None to disable)
-                "targets": target_set,
-                "augmentation_ratio": ratio,
-                "note": "new example run for claude code",
-            }
+            config = ExperimentConfig(
+                epochs=30,
+                hyperparameter_mode='default',  # 'default', 'optimize'
+                n_trials=30,  # Number of Optuna trials
+                early_stopping_patience=2,  # Stop if val loss doesn't improve for N epochs (None to disable)
+                seed=42,  # Global seed (torch/numpy/random + Optuna sampler)
+                targets=target_set,
+                augmentation_ratio=ratio,
+                note="augmentation with default hyperparameters",
+            )
             
             # List of models to test
             # models_to_test = [SimpleMLPRegressor, ElasticNetModel, LinearRegressionModel, RandomForestLikeMLP]
@@ -106,44 +109,51 @@ def main():
             # models_to_test = [LSTMBaseline]
             # models_to_test = [CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline, LinearReg, ElasticNetReg, SVRReg, RandomForestReg]
             # models_to_test = [BASEBaselineNORM, BASEBaseline, MLPSharedEncoderFLAT, BASEBaselineFLAT, CNNBaselineNOEMBED, CNNBaselineNOEMBEDFLAT]
-            # models_to_test = [LSTMBaseline, BASEBaseline, MLPSharedEncoderFLAT, BASEBaselineFLAT, CNNBaselineNOEMBED, CNNBaseline, MLPSharedEncoder, MLPPathSpecific, MLPBaseline]
+            # models_to_test = [LSTMBaseline, BASEBaseline, BASEBaselineFLAT, CNNBaselineNOEMBED, CNNBaseline, MLPBaseline, LinearReg, ElasticNetReg, SVRReg]
             # models_to_test = [TabPFNReg] #AutoSklearnReg
-            models_to_test = [BASEBaselineFLAT]
+            models_to_test = [MultiScaleTCN, HybridCNNGRUFusion]  # new architectures, v3 2026-07-09
+            # models_to_test = [BASEBaselineFLAT]
 
             
             for model_class in models_to_test:
                 model_name = model_class.model_name
                 if model_name == "LSTM_Baseline":
-                    config["epochs"] = 50
+                    config.epochs = 50
                 else:
-                    config["epochs"] = 30
+                    config.epochs = 30
 
                 print(f"\n{'='*60}")
                 print(f"STARTING EXPERIMENT FOR: {model_name}")
                 print(f"{'='*60}\n")
-                
+
+                # Reproducibility: identical seed state at the start of every experiment
+                set_global_seed(config.seed)
+
                 pipeline = SimplePipeline(model_class, config)
                 saver = SavingModule(model_name=f"{model_name}")
                 saver.save_model_source(model_class)
 
-                # 1. Hyperparameter Tuning & CV on Train Set
-                # This returns the CV results (optimistic) and the best params found
+                # 1. Hyperparameter Tuning & LOGO-CV Validation on Train Set
+                # Returns an ExperimentResult (test=None) with per-user CV
+                # predictions. NOTE: in 'optimize' mode the val score is a
+                # model-selection score (optimistically biased) — see
+                # open_improvements.md.
                 tuning_results = pipeline.run_simple_tuning(X_train, y_train, users_train)
-                
+
                 # 2. Final Evaluation on Test Set
                 print("\nLoading Test Set...")
                 dataset_test = AssessmentDataset("/data/test")
-                
-                # Need target selection on test set too to match dimensions!
-                dataset_test.perform_target_selection(target_set)
-                
-                X_test, y_test, users_test, _ = dataset_test.get_all()
+
+                # Same target selection; the test split never contains clones
+                X_test, y_test, users_test, _ = dataset_test.view(
+                    targets=target_set, augmentation_ratio=0).get_all()
 
                 # Run Final Test
-                # This consumes the tuning results, trains the final model on full train,
-                # evaluates on test, and returns a consolidated results dictionary.
+                # Trains the final model on the full training set (mean best
+                # epoch from CV) and returns a NEW ExperimentResult with the
+                # test results attached; tuning_results stays untouched.
                 final_results = pipeline.run_final_test(
-                    X_train, y_train, 
+                    X_train, y_train,
                     X_test, y_test, users_test,
                     tuning_results
                 )

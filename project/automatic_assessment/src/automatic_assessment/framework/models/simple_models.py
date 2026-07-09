@@ -64,8 +64,8 @@ class DummyMeanRegressor(BaseModel):
         self.register_buffer("seen_samples", torch.tensor(0.0))
 
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
-        x_ts, x_path, x_user = x
-        batch_size = x_ts.shape[0]
+        # Input convention: (x_path, x_user, *ts_groups)
+        batch_size = x[0].shape[0]
 
         # Always predict learned mean
         return self.running_mean.unsqueeze(0).expand(batch_size, -1)
@@ -104,11 +104,11 @@ class LinearRegressionModel(BaseModel):
     def __init__(self, input_dims, output_dim, hyperparams):
         super().__init__(input_dims, output_dim, hyperparams)
 
-        ts_shape = input_dims[0]
-        path_shape = input_dims[1]
-        user_shape = input_dims[2]
+        # Input convention: (x_path, x_user, *ts_groups) — this model uses path+user only
+        path_shape = input_dims[0]
+        user_shape = input_dims[1]
 
-        self.n_paths = ts_shape[1]
+        self.n_paths = path_shape[1]
         self.f_path = path_shape[2]
         self.f_user = user_shape[1]
         
@@ -123,7 +123,8 @@ class LinearRegressionModel(BaseModel):
         self.linear = nn.Linear(self.f_path + self.f_user, output_dim)
 
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
-        x_ts, x_path, x_user = x
+        # Input convention: (x_path, x_user, *ts_groups) — this model uses path+user only
+        x_path, x_user = x[0], x[1]
 
         path_features = self.aggregator(x_path)
         self.last_attn_weights = self.aggregator.last_attn_weights
@@ -156,15 +157,32 @@ class LinearRegressionModel(BaseModel):
 
 class ElasticNetModel(LinearRegressionModel):
     """
-    Same architecture as LinearRegressionModel,
-    but training should use combined L1 + L2 penalty.
+    Same architecture as LinearRegressionModel, trained with a combined
+    L1 + L2 penalty (elastic net):
 
-    Add L1 manually in training loop:
-        loss += alpha * l1_ratio * L1
-        loss += alpha * (1 - l1_ratio) * L2
+        penalty = alpha * (l1_ratio * ||w||_1 + 0.5 * (1 - l1_ratio) * ||w||_2^2)
+
+    The penalty is added to the training loss via `regularization_loss()`,
+    which the Trainer calls automatically when present. Biases are not
+    penalized (standard elastic-net convention). `weight_decay` is fixed
+    to 0.0 so AdamW's decoupled L2 does not double-penalize.
     """
 
     model_name = "ElasticNetModel"
+
+    def regularization_loss(self) -> torch.Tensor:
+        alpha = float(self.hyperparams.get("alpha", 0.0))
+        l1_ratio = float(self.hyperparams.get("l1_ratio", 0.5))
+
+        l1 = torch.tensor(0.0, device=next(self.parameters()).device)
+        l2 = torch.tensor(0.0, device=next(self.parameters()).device)
+        for name, p in self.named_parameters():
+            if not p.requires_grad or name.endswith("bias"):
+                continue
+            l1 = l1 + p.abs().sum()
+            l2 = l2 + (p ** 2).sum()
+
+        return alpha * (l1_ratio * l1 + 0.5 * (1.0 - l1_ratio) * l2)
 
     @staticmethod
     def get_hyperparameter_space(trial):
@@ -175,6 +193,7 @@ class ElasticNetModel(LinearRegressionModel):
             "lr": trial.suggest_float("lr", 1e-4, 5e-3, log=True),
             "alpha": trial.suggest_float("alpha", 1e-4, 1.0, log=True),
             "l1_ratio": trial.suggest_float("l1_ratio", 0.1, 0.9),
+            "weight_decay": trial.suggest_categorical("weight_decay", [0.0]),
         }
 
     @staticmethod
@@ -184,6 +203,7 @@ class ElasticNetModel(LinearRegressionModel):
             "lr": 1e-3,
             "alpha": 1e-2,
             "l1_ratio": 0.5,
+            "weight_decay": 0.0,
         }
 
 
@@ -202,11 +222,11 @@ class RandomForestLikeMLP(BaseModel):
     def __init__(self, input_dims, output_dim, hyperparams):
         super().__init__(input_dims, output_dim, hyperparams)
 
-        ts_shape = input_dims[0]
-        path_shape = input_dims[1]
-        user_shape = input_dims[2]
+        # Input convention: (x_path, x_user, *ts_groups) — this model uses path+user only
+        path_shape = input_dims[0]
+        user_shape = input_dims[1]
 
-        self.n_paths = ts_shape[1]
+        self.n_paths = path_shape[1]
         self.f_path = path_shape[2]
         self.f_user = user_shape[1]
         
@@ -228,7 +248,8 @@ class RandomForestLikeMLP(BaseModel):
         )
 
     def forward(self, x):
-        _, x_path, x_user = x
+        # Input convention: (x_path, x_user, *ts_groups) — this model uses path+user only
+        x_path, x_user = x[0], x[1]
 
         path_features = self.aggregator(x_path)
         self.last_attn_weights = self.aggregator.last_attn_weights
@@ -273,11 +294,11 @@ class SimpleMLPRegressor(BaseModel):
     def __init__(self, input_dims, output_dim, hyperparams):
         super().__init__(input_dims, output_dim, hyperparams)
 
-        ts_shape = input_dims[0]
-        path_shape = input_dims[1]
-        user_shape = input_dims[2]
+        # Input convention: (x_path, x_user, *ts_groups) — this model uses path+user only
+        path_shape = input_dims[0]
+        user_shape = input_dims[1]
 
-        self.n_paths = ts_shape[1]
+        self.n_paths = path_shape[1]
         self.f_path = path_shape[2]
         self.f_user = user_shape[1]
         
@@ -306,7 +327,8 @@ class SimpleMLPRegressor(BaseModel):
         self.mlp = nn.Sequential(*layers)
 
     def forward(self, x):
-        _, x_path, x_user = x
+        # Input convention: (x_path, x_user, *ts_groups) — this model uses path+user only
+        x_path, x_user = x[0], x[1]
 
         path_features = self.aggregator(x_path)
         self.last_attn_weights = self.aggregator.last_attn_weights

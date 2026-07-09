@@ -3,54 +3,50 @@ import torch.nn as nn
 from typing import Dict, Any, List
 
 from ..base import BaseModel
-
-
-def masked_mean(x: torch.Tensor, lengths: torch.Tensor):
-    device = x.device
-    mask = torch.arange(x.size(1), device=device)[None, :] < lengths[:, None]
-    mask = mask.float().unsqueeze(-1)
-    x = x * mask
-    return x.sum(1) / lengths.clamp(min=1).unsqueeze(-1)
-
-
-def compute_lengths_flat(x_flat: torch.Tensor):
-    valid = (x_flat.abs() > 1e-8)
-    last_valid = valid.flip(1).float().argmax(dim=1)
-    lengths = x_flat.size(1) - last_valid
-    return lengths.clamp(min=1)
+from .masking import timestep_mask, masked_mean_over_time
+from ...data.schema import split_inputs, group_shapes
 
 
 class CNNBaseline(BaseModel):
+    """
+    One Conv1d encoder PER CHANNEL GROUP (mechanical / physiological /
+    gait — see config.TS_MODEL_GROUPS). Groups keep their native sampling
+    rates and lengths; each encoder pools over time with the group's
+    validity mask, and the pooled group embeddings are concatenated
+    before fusion with the path features.
+    """
+
     model_name = "CNN_Baseline"
 
     def __init__(self, input_dims, output_dim, hyperparams):
         super().__init__(input_dims, output_dim, hyperparams)
 
-        ts_shape = input_dims[0]
-        self.n_paths = ts_shape[1]
-        self.n_ts = ts_shape[2]
-        self.max_timesteps = ts_shape[3]
-
-        path_shape = input_dims[1]
+        path_shape, user_shape, groups = group_shapes(input_dims)
+        self.n_paths = path_shape[1]
         self.f_path = path_shape[2]
-
-        user_shape = input_dims[2]
         self.f_user = user_shape[1]
+        self.n_groups = len(groups)
 
         hp = hyperparams
         channels = hp["cnn_channels"]
 
-        self.cnn = nn.Sequential(
-            nn.Conv1d(self.n_ts, channels, kernel_size=5, padding=2),
-            nn.ReLU(),
-            nn.Conv1d(channels, channels, kernel_size=3, padding=1),
-            nn.ReLU(),
-        )
+        # One CNN per group (input channels = group channel count)
+        self.cnns = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv1d(g_x_shape[2], channels, kernel_size=5, padding=2),
+                nn.ReLU(),
+                nn.Conv1d(channels, channels, kernel_size=3, padding=1),
+                nn.ReLU(),
+            )
+            for (g_x_shape, _) in groups
+        ])
+
+        self.ts_feat_dim = channels * self.n_groups
 
         self.path_dim = hp["path_dim"]
 
         self.path_bottleneck = nn.Sequential(
-            nn.Linear(channels + self.f_path, self.path_dim),
+            nn.Linear(self.ts_feat_dim + self.f_path, self.path_dim),
             nn.ReLU(),
             nn.Dropout(hp["dropout_path"])
         )
@@ -74,31 +70,38 @@ class CNNBaseline(BaseModel):
 
     # -----------------------------------------------------
 
-    def encode_timeseries(self, x_ts):
-        B, P, TS, T = x_ts.shape
+    def encode_timeseries(self, groups) -> torch.Tensor:
+        """
+        Encodes every channel group with its own CNN and masked mean
+        pooling, then concatenates the group embeddings.
 
-        # compute path lengths
-        x_path = x_ts.abs().sum(dim=2)
-        x_path = x_path.view(B * P, T)
-        l = compute_lengths_flat(x_path)
+        Args:
+            groups: list of (x_g, mask_g) with x_g: (B, P, C_g, T_g)
 
-        # flatten → (B*P,TS,T)
-        x = x_ts.reshape(B * P, TS, T)
+        Returns:
+            (B, P, cnn_channels * n_groups)
+        """
+        pooled_groups = []
+        for cnn, (x_g, mask_g) in zip(self.cnns, groups):
+            B, P, C, T = x_g.shape
 
-        feat = self.cnn(x)
-        feat = feat.permute(0, 2, 1)
+            # per-timestep validity from the explicit mask (never from values!)
+            t_mask = timestep_mask(mask_g).view(B * P, T)
 
-        pooled = masked_mean(feat, l)
+            feat = cnn(x_g.reshape(B * P, C, T))
+            feat = feat.permute(0, 2, 1)
 
-        pooled = pooled.view(B, P, pooled.shape[-1])
-        return pooled
+            pooled = masked_mean_over_time(feat, t_mask)
+            pooled_groups.append(pooled.view(B, P, -1))
+
+        return torch.cat(pooled_groups, dim=-1)
 
     # -----------------------------------------------------
 
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
-        x_ts, x_path, x_user = x
+        x_path, x_user, groups = split_inputs(x)
 
-        ts_paths = self.encode_timeseries(x_ts)        # (B,P,C)
+        ts_paths = self.encode_timeseries(groups)      # (B,P,ts_feat_dim)
 
         path_combined = torch.cat([ts_paths, x_path], dim=-1)
         path_feat = self.path_bottleneck(path_combined)
@@ -125,7 +128,7 @@ class CNNBaseline(BaseModel):
             "cnn_channels": trial.suggest_categorical("cnn_channels", [2, 4, 8]),
             "path_dim": trial.suggest_categorical("path_dim", [4, 6, 8, 12]),
             "dropout_path": trial.suggest_float("dropout_path", 0.1, 0.6),
-            "path_aggregation": trial.suggest_categorical("path_aggregation", ["mean"]), #"attention", 
+            "path_aggregation": trial.suggest_categorical("path_aggregation", ["mean"]), #"attention",
             "regressor_dim": trial.suggest_categorical("regressor_dim", [128, 192, 256, 384, 512]),
             "dropout_reg": trial.suggest_float("dropout_reg", 0.1, 0.6),
             "lr": trial.suggest_float("lr", 1e-5, 5e-2, log=True),

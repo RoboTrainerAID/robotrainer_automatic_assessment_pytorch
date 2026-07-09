@@ -18,10 +18,24 @@ def create_features_csv():
     loader = TimeseriesLoader(config)
     dataset = loader.load("/data/raw/timeseries_numpy_processed")
     
-    # Extract features
+    # Extract features (validates the feature config and reports
+    # missing series / NaN features loudly)
     print("Extracting statistical features...")
     extractor = TimeseriesFeatureExtractor(dataset)
     features = extractor.extract_features()
+
+    # Fail loudly if the final feature table contains NaN values:
+    # the training framework asserts finiteness and would crash later
+    # with a less specific error (see analysis 3.5).
+    feature_cols = [c for c in features.columns if c not in ("user", "path")]
+    nan_counts = features[feature_cols].isna().sum()
+    nan_cols = nan_counts[nan_counts > 0]
+    if len(nan_cols) > 0:
+        raise RuntimeError(
+            "timeseries_features.csv would contain NaN values in columns: "
+            f"{list(nan_cols.index)}. Fix the source data or the imputation "
+            "before generating the dataset."
+        )
     
     # Save to CSV using the config path
     extractor.save_features_to_csv()
@@ -47,11 +61,20 @@ def main():
     imputer.impute_from_report(validation_report)
     imputer.impute_zero_disturbance()
     
-    # 4. Second Validation
+    # 4. Second Validation — after imputation the dataset MUST be complete
+    # and finite. Any remaining issue is a hard error (analysis 3.5).
     print("\nValidating dataset (Post-Imputation)...")
     validation_report_post = TimeseriesValidator.validate_dataset(dataset, config)
     TimeseriesValidator.print_validation_report(validation_report_post)
     TimeseriesValidator.print_dataset_summary(dataset)
+
+    if validation_report_post:
+        n_issues = sum(len(v) for v in validation_report_post.values())
+        raise RuntimeError(
+            f"Post-imputation validation failed with {n_issues} issue(s) across "
+            f"{len(validation_report_post)} user(s) — see the report above. "
+            "The dataset must be complete and finite after imputation."
+        )
 
     # 5. Preprocessing (Derived Timeseries)
     processor = TimeseriesDerivedTS(dataset)

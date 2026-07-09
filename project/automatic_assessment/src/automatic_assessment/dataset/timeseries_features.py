@@ -21,12 +21,45 @@ class TimeseriesFeatureExtractor:
     def __init__(self, dataset: TimeseriesDataset) -> None:
         self.dataset = dataset
         self.features_df = pd.DataFrame()
+        # Tracks (series, user, path) combinations that were skipped because
+        # the series was missing — reported loudly after extraction.
+        self._missing_series_counts: Dict[str, int] = {}
+
+    @staticmethod
+    def validate_feature_config() -> None:
+        """
+        Fails loudly if the feature configuration references timeseries
+        names that are never produced (raw or derived). A silent mismatch
+        here means whole feature families are silently never extracted
+        (this happened with 'user_force_mag' vs 'user_force_total_mag').
+        """
+        valid = set(config.ALL_VALID_TIMESERIES)
+
+        unknown_ts = [name for name in config.TS_FEATURES if name not in valid]
+        unknown_corr = [name for pair in config.CORRELATION_FEATURES for name in pair if name not in valid]
+        unknown_delay = [name for pair in config.TIME_DELAY_FEATURES for name in pair if name not in valid]
+
+        problems = []
+        if unknown_ts:
+            problems.append(f"TS_FEATURES keys not in ALL_VALID_TIMESERIES: {unknown_ts}")
+        if unknown_corr:
+            problems.append(f"CORRELATION_FEATURES names not in ALL_VALID_TIMESERIES: {sorted(set(unknown_corr))}")
+        if unknown_delay:
+            problems.append(f"TIME_DELAY_FEATURES names not in ALL_VALID_TIMESERIES: {sorted(set(unknown_delay))}")
+
+        if problems:
+            raise ValueError(
+                "Feature configuration references unknown timeseries — these features "
+                "would be SILENTLY skipped for every path:\n  - " + "\n  - ".join(problems)
+            )
 
     def extract_features(self) -> pd.DataFrame:
         """
         Iterates through the dataset and extracts features for every path.
         Returns a pandas DataFrame where each row is a path.
         """
+        self.validate_feature_config()
+        self._missing_series_counts = {}
         rows = []
 
         print("Extracting features...")
@@ -60,6 +93,23 @@ class TimeseriesFeatureExtractor:
         self.features_df = pd.DataFrame(rows)
         if not self.features_df.empty:
             print(f"  Extracted {self.features_df.shape[1]} features for {self.features_df.shape[0]} paths.")
+
+        # --- Loud reporting of skipped series and NaN features (analysis 2.11 / 3.5) ---
+        if self._missing_series_counts:
+            print("  WARNING: features skipped because the timeseries was missing "
+                  "(series: #paths affected):")
+            for name, count in sorted(self._missing_series_counts.items()):
+                print(f"    - {name}: {count} paths")
+
+        if not self.features_df.empty:
+            nan_counts = self.features_df.isna().sum()
+            nan_cols = nan_counts[nan_counts > 0]
+            if len(nan_cols) > 0:
+                print("  WARNING: extracted features contain NaN values "
+                      "(column: #NaN rows) — downstream training will fail loudly on these:")
+                for col, count in nan_cols.items():
+                    print(f"    - {col}: {int(count)}")
+
         return self.features_df
 
     def save_features_to_csv(self, output_path: str = None) -> None:
@@ -94,6 +144,8 @@ class TimeseriesFeatureExtractor:
 
         for ts_name, feature_list in config.TS_FEATURES.items():
             if ts_name not in pd_data.timeseries:
+                # Missing series: skip, but count it for the loud summary report
+                self._missing_series_counts[ts_name] = self._missing_series_counts.get(ts_name, 0) + 1
                 continue
 
             # Extract value column (Assumes index 2 is value)

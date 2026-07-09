@@ -16,13 +16,12 @@ class MLPPathSpecific(BaseModel):
         # DATA DIMENSIONS
         # ========================
 
-        ts_shape = input_dims[0]
-        self.n_paths = ts_shape[1]
-
-        path_shape = input_dims[1]
+        # Input convention: (x_path, x_user, *ts_groups) — this model uses path+user only
+        path_shape = input_dims[0]
+        self.n_paths = path_shape[1]
         self.f_path = path_shape[2]
 
-        user_shape = input_dims[2]
+        user_shape = input_dims[1]
         self.f_user = user_shape[1]
 
         # ========================
@@ -80,7 +79,8 @@ class MLPPathSpecific(BaseModel):
 
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
 
-        _, x_path, x_user = x
+        # Input convention: (x_path, x_user, *ts_groups) — this model uses path+user only
+        x_path, x_user = x[0], x[1]
 
         B = x_path.shape[0]
 

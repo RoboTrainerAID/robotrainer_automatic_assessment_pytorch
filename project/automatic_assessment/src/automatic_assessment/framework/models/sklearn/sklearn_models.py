@@ -27,7 +27,7 @@ class LinearReg(SklearnBaseModel):
 
     @staticmethod
     def get_default_parameters():
-        return {"fit_intercept": True, "n_path_features": 50}
+        return {"fit_intercept": False, "n_path_features": 30}
 
 
 class ElasticNetReg(SklearnBaseModel):
@@ -63,7 +63,7 @@ class ElasticNetReg(SklearnBaseModel):
 
     @staticmethod
     def get_default_parameters():
-        return {"alpha": 0.1, "l1_ratio": 0.5, "fit_intercept": True, "selection": "cyclic", "n_path_features": 50}
+        return {"alpha": 0.2, "l1_ratio": 0.4, "fit_intercept": False, "selection": "cyclic", "n_path_features": 30}
 
 
 class SVRReg(SklearnBaseModel):
@@ -112,7 +112,7 @@ class SVRReg(SklearnBaseModel):
 
     @staticmethod
     def get_default_parameters():
-        return {"C": 1.0, "epsilon": 0.1, "kernel": "rbf", "gamma": "scale", "shrinking": True, "n_path_features": 50}
+        return {"C": 47.94113098310296, "epsilon": 0.2795553581365559, "kernel": "linear", "gamma": "scale", "shrinking": True, "n_path_features": 30}
 
 
 class RandomForestReg(SklearnBaseModel):
@@ -155,9 +155,9 @@ class RandomForestReg(SklearnBaseModel):
     @staticmethod
     def get_default_parameters():
         return {
-            "n_estimators": 100, "max_depth": None, "min_samples_split": 2,
-            "min_samples_leaf": 1, "max_features": 1.0, "bootstrap": True, 
-            "n_path_features": 50
+            "n_estimators": 500, "max_depth": 20, "min_samples_split": 2,
+            "min_samples_leaf": 1, "max_features": 0.5, "bootstrap": True, 
+            "n_path_features": 60
         }
 
 

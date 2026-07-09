@@ -4,23 +4,8 @@ from typing import Dict, Any, List
 
 from ..base import BaseModel
 
-# Das selbe wie die CNN oder LSTM architektur aber ohne CNN oder LSTM, also nur mit linearen Schichten. 
+# Das selbe wie die CNN oder LSTM architektur aber ohne CNN oder LSTM, also nur mit linearen Schichten.
 # Damit können wir testen, ob die Komplexität der CNN/LSTM Architekturen überhaupt nötig ist oder ob ein simpler linearer Ansatz schon ausreicht.
-
-
-def masked_mean(x: torch.Tensor, lengths: torch.Tensor):
-    device = x.device
-    mask = torch.arange(x.size(1), device=device)[None, :] < lengths[:, None]
-    mask = mask.float().unsqueeze(-1)
-    x = x * mask
-    return x.sum(1) / lengths.clamp(min=1).unsqueeze(-1)
-
-
-def compute_lengths_flat(x_flat: torch.Tensor):
-    valid = (x_flat.abs() > 1e-8)
-    last_valid = valid.flip(1).float().argmax(dim=1)
-    lengths = x_flat.size(1) - last_valid
-    return lengths.clamp(min=1)
 
 
 class BASEBaseline(BaseModel):
@@ -29,15 +14,12 @@ class BASEBaseline(BaseModel):
     def __init__(self, input_dims, output_dim, hyperparams):
         super().__init__(input_dims, output_dim, hyperparams)
 
-        ts_shape = input_dims[0]
-        self.n_paths = ts_shape[1]
-        self.n_ts = ts_shape[2]
-        self.max_timesteps = ts_shape[3]
-
-        path_shape = input_dims[1]
+        # Input convention: (x_path, x_user, *ts_groups) — this model uses path+user only
+        path_shape = input_dims[0]
+        self.n_paths = path_shape[1]
         self.f_path = path_shape[2]
 
-        user_shape = input_dims[2]
+        user_shape = input_dims[1]
         self.f_user = user_shape[1]
 
         hp = hyperparams
@@ -70,7 +52,8 @@ class BASEBaseline(BaseModel):
     # -----------------------------------------------------
 
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
-        x_ts, x_path, x_user = x
+        # Input convention: (x_path, x_user, *ts_groups) — this model uses path+user only
+        x_path, x_user = x[0], x[1]
 
         path_feat = self.path_bottleneck(x_path)
 

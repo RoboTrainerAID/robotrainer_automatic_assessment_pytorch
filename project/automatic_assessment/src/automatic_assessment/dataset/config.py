@@ -161,6 +161,107 @@ def _get_all_expected_ts():
 ALL_VALID_TIMESERIES = _get_all_expected_ts()
 
 # ============================================================
+# Timeseries groups for the LEARNED-FEATURE models (CNN/LSTM)
+# ============================================================
+# Each group gets its own tensor at its own sampling rate and its own
+# encoder in the models. Rationale:
+# - Mechanical signals carry fast dynamics (force-field hits, tremor
+#   band 3-10 Hz): keep high resolution. 200 Hz raw force is capped to
+#   50 Hz (bin averaging) — Nyquist 25 Hz comfortably covers the
+#   relevant bands while cutting tensor size 4x.
+# - Physiological signals are natively ~1-2.2 Hz: 2 Hz preserves the
+#   native HRV/PPI resolution (heart_rate at 1 Hz simply has masked
+#   gaps on the 2 Hz grid).
+# - Gait events occur about once per stride (~1 Hz): 2 Hz keeps
+#   individual strides separate.
+# Channels within a group share one time grid; groups are NOT aligned
+# to each other (per-group learned features, no cross-group indexing).
+# The statistical features (TS_FEATURES) always use the RAW series —
+# this grouping only affects the tensors built for model training.
+TS_MODEL_GROUPS = {
+    "mechanical": {
+        "rate_hz": 50.0,
+        "channels": [
+            "disturbance_force_lin_mag", "disturbance_force_x", "disturbance_force_y",
+            "path_deviation_front", "path_deviation_left", "path_deviation_right",
+            "robot_pos_theta", "robot_pos_x", "robot_pos_y",
+            "robot_vel_lin_mag", "robot_vel_rot_z", "robot_vel_total_mag",
+            "robot_vel_x", "robot_vel_y",
+            "user_force_lin_mag", "user_force_total_mag", "user_force_x", "user_force_y",
+            "user_power", "user_torque_z", "user_work_cum",
+        ],
+    },
+    "physiological": {
+        "rate_hz": 2.0,
+        "channels": ["heart_rate", "hrv", "ppi"],
+    },
+    "gait": {
+        "rate_hz": 2.0,
+        "channels": [
+            "left_stride_duration", "left_stride_length",
+            "left_stride_stance_time", "left_stride_swing_time",
+            "right_stride_duration", "right_stride_length",
+            "right_stride_stance_time", "right_stride_swing_time",
+        ],
+    },
+}
+
+
+# ============================================================
+# Data Augmentation (synthetic TRAINING users)
+# ============================================================
+# Clones are generated ONCE at split creation (framework/data/dataset.py,
+# prepare_and_split_data) and ONLY for training users — test users never
+# get clones, so no augmented information can leak into the hold-out.
+#
+# Semantics of a clone: a noisy RE-MEASUREMENT of the same person.
+# Targets, demographics, and task difficulty stay strictly identical;
+# only the RAW sensor channels receive noise. Derived series (magnitudes,
+# power, work) and all statistical features are RE-COMPUTED from the
+# noisy traces so the clone stays physically consistent.
+#
+# Clone user id = original_id * 100 + clone_index (1..max_ratio); the
+# AugmentedLOGO splitter excludes a validation user's clones from the
+# training fold. At experiment time, AssessmentDataset.view(...,
+# augmentation_ratio=r) selects clones with index <= r, so a ratio sweep
+# needs no data regeneration.
+AUGMENTATION = {
+    "max_ratio": 10,        # clones generated per training user at split creation
+    "method": "jitter",    # currently implemented: "jitter" (extensible)
+    "noise_factor": 0.05,  # sigma = noise_factor * robust per-(path,channel) std
+    "seed": 42,            # base seed; each clone derives its own stream
+}
+
+
+def augmentation_positive_channels() -> set:
+    """
+    Channels that must stay strictly positive under augmentation
+    (multiplicative/truncated noise instead of additive Gaussian):
+    all physiological and gait-event channels.
+    """
+    positive = set()
+    for name in ("physiological", "gait"):
+        positive.update(TS_MODEL_GROUPS[name]["channels"])
+    return positive
+
+
+def validate_ts_groups() -> None:
+    """Groups must exactly partition ALL_VALID_TIMESERIES (fail loudly)."""
+    grouped = [ch for g in TS_MODEL_GROUPS.values() for ch in g["channels"]]
+    duplicates = {ch for ch in grouped if grouped.count(ch) > 1}
+    grouped_set = set(grouped)
+    valid_set = set(ALL_VALID_TIMESERIES)
+    problems = []
+    if duplicates:
+        problems.append(f"channels assigned to multiple groups: {sorted(duplicates)}")
+    if grouped_set - valid_set:
+        problems.append(f"grouped channels that are not valid timeseries: {sorted(grouped_set - valid_set)}")
+    if valid_set - grouped_set:
+        problems.append(f"valid timeseries missing from every group: {sorted(valid_set - grouped_set)}")
+    if problems:
+        raise ValueError("TS_MODEL_GROUPS configuration invalid:\n  - " + "\n  - ".join(problems))
+
+# ============================================================
 # FEATURE EXTRACTION Core robust features (applied to most TS)
 # ============================================================
 
@@ -180,7 +281,10 @@ TS_FEATURES = {
 
     # --- Force Magnitudes (derived) ---
     # per segment
-    "user_force_mag": CORE_FEATURES + [
+    # NOTE: was "user_force_mag" before, which matched NO produced series
+    # (silently skipped!) — the derived series is named "user_force_total_mag"
+    # (Eq. 4 in the paper: linear force + tangential torque component).
+    "user_force_total_mag": CORE_FEATURES + [
         "energy",             # integral_squared
         "impulse",  # integral (Total effort)
         "rms_diff",

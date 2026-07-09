@@ -3,6 +3,9 @@ Validation logic for the loaded timeseries dataset.
 """
 
 from typing import Dict, List, Any
+
+import numpy as np
+
 from automatic_assessment.dataset.timeseries_loader import PathData
 
 
@@ -60,13 +63,45 @@ class TimeseriesValidator:
                 for ts_name, arr in pd.timeseries.items():
                     if len(arr) < 1:
                         short_keys.append(ts_name)
-                
+
                 if short_keys:
                     user_issues.append({
                         "path_id": path_id,
                         "type": "empty_timeseries",
                         "details": f"Timeseries is empty: {short_keys}",
                         "target_names": short_keys
+                    })
+
+                # 4. Check for NaN/Inf VALUES inside the timeseries
+                invalid_value_keys = []
+                invalid_details = []
+                for ts_name, arr in pd.timeseries.items():
+                    if arr.size == 0:
+                        continue
+                    n_bad = int(np.size(arr) - np.isfinite(arr).sum())
+                    if n_bad > 0:
+                        invalid_value_keys.append(ts_name)
+                        invalid_details.append(f"{ts_name}: {n_bad} non-finite entries")
+
+                if invalid_value_keys:
+                    user_issues.append({
+                        "path_id": path_id,
+                        "type": "invalid_values",
+                        "details": f"Non-finite values found: {invalid_details}",
+                        "target_names": invalid_value_keys
+                    })
+
+                # 5. Check for NaN/Inf scalar features
+                bad_scalars = [
+                    name for name, value in pd.scalar_features.items()
+                    if not np.isfinite(value)
+                ]
+                if bad_scalars:
+                    user_issues.append({
+                        "path_id": path_id,
+                        "type": "invalid_scalar_values",
+                        "details": f"Non-finite scalar features: {bad_scalars}",
+                        "target_names": bad_scalars
                     })
 
             if user_issues:
